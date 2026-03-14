@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotless Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>Spotless Admin</h1>
+            <span class="subtitle">Relay Test Dashboard</span>
+        </div>
+        <div class="header-right">
+            <div class="status-badge" id="mqtt-badge">
+                <span class="dot" id="mqtt-dot"></span>
+                <span id="mqtt-label">MQTT: Connecting...</span>
+            </div>
+            <div class="pi-info" id="pi-info">Pi IP: —</div>
+            <button class="btn btn-refresh" id="btn-refresh" title="Request status from all nodes">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 3a5 5 0 0 0-4.546 2.914.5.5 0 1 1-.908-.418A6 6 0 0 1 14 8a.5.5 0 0 1-1 0 5 5 0 0 0-5-5z"/>
+                    <path d="M8 13a5 5 0 0 0 4.546-2.914.5.5 0 1 1 .908.418A6 6 0 0 1 2 8a.5.5 0 0 1 1 0 5 5 0 0 0 5 5z"/>
+                    <path d="M8 1.5a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0V2a.5.5 0 0 1 .5-.5z"/>
+                    <path d="M8 14.5a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 1 1 0v2a.5.5 0 0 1-.5.5z"/>
+                </svg>
+                Refresh
+            </button>
+        </div>
+    </header>
+
+    <main id="nodes-container">
+        <!-- Nodes loaded dynamically -->
+        <div class="loading">Connecting to MQTT and loading nodes...</div>
+    </main>
+
+    <footer>
+        <span>Project Spotless — Admin Dashboard</span>
+        <span id="last-update">—</span>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>
