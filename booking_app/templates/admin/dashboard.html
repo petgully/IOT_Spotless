@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard - Petgully Spotless{% endblock %}
+
+{% block header %}
+<header class="app-header">
+    <div class="header-content">
+        <div>
+            <div style="font-size: 0.8rem; opacity: 0.8;">Admin Panel</div>
+            <div class="header-title">Dashboard 🛠️</div>
+        </div>
+        <a href="{{ url_for('logout') }}" style="color: white; font-size: 0.8rem;">Logout</a>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.customers or 0 }}</div>
+        <div class="stat-label">Customers</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.pets or 0 }}</div>
+        <div class="stat-label">Pets</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: var(--warning);">{{ stats.pending or 0 }}</div>
+        <div class="stat-label">Pending</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: var(--success);">{{ stats.completed or 0 }}</div>
+        <div class="stat-label">Completed</div>
+    </div>
+</div>
+
+<!-- Recent Bookings -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">📅 Recent Bookings</h3>
+    </div>
+    
+    {% if bookings %}
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+            <thead>
+                <tr style="border-bottom: 2px solid var(--gray-200);">
+                    <th style="padding: 10px; text-align: left;">Code</th>
+                    <th style="padding: 10px; text-align: left;">Customer</th>
+                    <th style="padding: 10px; text-align: left;">Pet</th>
+                    <th style="padding: 10px; text-align: left;">Type</th>
+                    <th style="padding: 10px; text-align: left;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for booking in bookings %}
+                <tr style="border-bottom: 1px solid var(--gray-100);">
+                    <td style="padding: 10px; font-family: monospace; font-weight: 600;">{{ booking.booking_code }}</td>
+                    <td style="padding: 10px;">{{ booking.customer_name }}</td>
+                    <td style="padding: 10px;">{{ booking.pet_name }}</td>
+                    <td style="padding: 10px;">{{ booking.session_type }}</td>
+                    <td style="padding: 10px;">
+                        <span class="booking-status {{ booking.status }}">{{ booking.status }}</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="text-align: center; color: var(--gray-400); padding: 20px;">No bookings yet</p>
+    {% endif %}
+</div>
+
+<!-- Quick Actions -->
+<div class="card">
+    <h3 class="card-title" style="margin-bottom: 15px;">⚡ Quick Actions</h3>
+    
+    <div style="display: grid; gap: 10px;">
+        <a href="{{ url_for('home') }}" class="btn btn-outline btn-sm">View Public Site</a>
+        <button class="btn btn-secondary btn-sm" onclick="alert('Export feature coming soon!')">Export Bookings</button>
+    </div>
+</div>
+{% endblock %}

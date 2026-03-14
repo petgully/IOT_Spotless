@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+
+{% block title %}Add Pet - Petgully Spotless{% endblock %}
+
+{% block header %}
+<header class="app-header">
+    <div class="header-content">
+        <button class="header-back" onclick="history.back()">←</button>
+        <div class="header-title">Add New Pet</div>
+        <div style="width: 40px;"></div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 20px 0;">
+    <div style="width: 100px; height: 100px; background: var(--primary-gradient-soft); border-radius: 50%; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 3rem;">
+        🐕
+    </div>
+    <p style="color: var(--gray-500);">Tell us about your furry friend</p>
+</div>
+
+<form method="POST" action="{{ url_for('add_pet') }}">
+    <div class="card">
+        <div class="form-group">
+            <label class="form-label">Pet Name *</label>
+            <input type="text" name="name" class="form-input" placeholder="What's your pet's name?" required>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Breed</label>
+            <input type="text" name="breed" class="form-input" placeholder="e.g., Golden Retriever, Persian Cat">
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Size *</label>
+            <div style="display: flex; gap: 10px;">
+                <label style="flex: 1;">
+                    <input type="radio" name="size" value="small" style="display: none;">
+                    <div class="session-type-card" onclick="this.previousElementSibling.checked = true; document.querySelectorAll('input[name=size]').forEach(r => r.closest('label').querySelector('.session-type-card').classList.remove('selected')); this.classList.add('selected');">
+                        <div style="font-size: 1.5rem;">🐕</div>
+                        <div style="font-weight: 600;">Small</div>
+                        <div style="font-size: 0.7rem; color: var(--gray-500);">&lt; 10kg</div>
+                    </div>
+                </label>
+                <label style="flex: 1;">
+                    <input type="radio" name="size" value="medium" checked style="display: none;">
+                    <div class="session-type-card selected" onclick="this.previousElementSibling.checked = true; document.querySelectorAll('input[name=size]').forEach(r => r.closest('label').querySelector('.session-type-card').classList.remove('selected')); this.classList.add('selected');">
+                        <div style="font-size: 1.5rem;">🐕</div>
+                        <div style="font-weight: 600;">Medium</div>
+                        <div style="font-size: 0.7rem; color: var(--gray-500);">10-25kg</div>
+                    </div>
+                </label>
+                <label style="flex: 1;">
+                    <input type="radio" name="size" value="large" style="display: none;">
+                    <div class="session-type-card" onclick="this.previousElementSibling.checked = true; document.querySelectorAll('input[name=size]').forEach(r => r.closest('label').querySelector('.session-type-card').classList.remove('selected')); this.classList.add('selected');">
+                        <div style="font-size: 1.5rem;">🐕‍🦺</div>
+                        <div style="font-weight: 600;">Large</div>
+                        <div style="font-size: 0.7rem; color: var(--gray-500);">&gt; 25kg</div>
+                    </div>
+                </label>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 15px;">
+            <div class="form-group" style="flex: 1;">
+                <label class="form-label">Weight (kg)</label>
+                <input type="number" name="weight" class="form-input" placeholder="e.g., 15" step="0.1">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label class="form-label">Age (years)</label>
+                <input type="number" name="age" class="form-input" placeholder="e.g., 3">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Special Notes</label>
+            <textarea name="notes" class="form-input" rows="3" placeholder="Any allergies, medical conditions, or preferences..."></textarea>
+        </div>
+    </div>
+    
+    <div style="padding: 20px 0;">
+        <button type="submit" class="btn btn-primary">
+            <span>Register Pet</span>
+            <span>🐾</span>
+        </button>
+    </div>
+</form>
+{% endblock %}

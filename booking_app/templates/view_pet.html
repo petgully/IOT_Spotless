@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ pet.name }} - Petgully Spotless{% endblock %}
+
+{% block header %}
+<header class="app-header">
+    <div class="header-content">
+        <button class="header-back" onclick="location.href='{{ url_for('dashboard') }}'">←</button>
+        <div class="header-title">{{ pet.name }}</div>
+        <div style="width: 40px;"></div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<!-- Pet Profile Card -->
+<div class="card" style="text-align: center;">
+    <div style="width: 120px; height: 120px; background: var(--primary-gradient-soft); border-radius: 50%; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center;">
+        {% if pet.photo_url %}
+            <img src="{{ pet.photo_url }}" alt="{{ pet.name }}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+        {% else %}
+            <span style="font-size: 4rem;">🐕</span>
+        {% endif %}
+    </div>
+    
+    <h2 style="margin-bottom: 5px;">{{ pet.name }}</h2>
+    <p style="color: var(--gray-500); margin-bottom: 15px;">{{ pet.breed or 'Mixed breed' }}</p>
+    
+    <div style="display: flex; justify-content: center; gap: 20px;">
+        <div>
+            <span class="pet-size-badge {{ pet.size }}" style="font-size: 0.9rem; padding: 5px 15px;">{{ pet.size|upper }}</span>
+        </div>
+        {% if pet.weight_kg %}
+        <div style="color: var(--gray-600);">
+            <strong>{{ pet.weight_kg }}</strong> kg
+        </div>
+        {% endif %}
+        {% if pet.age_years %}
+        <div style="color: var(--gray-600);">
+            <strong>{{ pet.age_years }}</strong> years
+        </div>
+        {% endif %}
+    </div>
+    
+    {% if pet.notes %}
+    <div style="margin-top: 15px; padding: 15px; background: var(--gray-50); border-radius: var(--radius); text-align: left;">
+        <div style="font-size: 0.8rem; color: var(--gray-500); margin-bottom: 5px;">Notes:</div>
+        <div style="font-size: 0.9rem;">{{ pet.notes }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Book Session CTA -->
+<div class="card" style="background: var(--primary-gradient); color: white;">
+    <h3 style="margin-bottom: 10px;">Ready for a spa day? 🛁</h3>
+    <p style="opacity: 0.9; font-size: 0.9rem; margin-bottom: 20px;">Book a grooming session for {{ pet.name }}</p>
+    <a href="{{ url_for('book_session', pet_id=pet.id) }}" class="btn" style="background: white; color: var(--primary-purple);">
+        <span>Book Now</span>
+        <span>→</span>
+    </a>
+</div>
+
+<!-- Booking History -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">📅 Booking History</h3>
+    </div>
+    
+    {% if bookings %}
+    <ul class="booking-list">
+        {% for booking in bookings[:5] %}
+        <li class="booking-item" onclick="location.href='{{ url_for('booking_confirmation', code=booking.booking_code) }}'">
+            <div class="booking-icon">🛁</div>
+            <div class="booking-details">
+                <div class="booking-pet">{{ booking.session_type|capitalize }} Session</div>
+                <div class="booking-info">
+                    {{ booking.booking_date.strftime('%d %b %Y') if booking.booking_date else 'Pending' }} •
+                    Code: {{ booking.booking_code }}
+                </div>
+            </div>
+            <span class="booking-status {{ booking.status }}">{{ booking.status }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div style="text-align: center; padding: 20px; color: var(--gray-400);">
+        <p>No grooming sessions yet</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block nav %}
+<nav class="bottom-nav">
+    <a href="{{ url_for('dashboard') }}" class="nav-item">
+        <span class="nav-icon">🏠</span>
+        <span>Home</span>
+    </a>
+    <a href="{{ url_for('book_session', pet_id=pet.id) }}" class="nav-item active">
+        <span class="nav-icon">📅</span>
+        <span>Book</span>
+    </a>
+    <a href="{{ url_for('logout') }}" class="nav-item">
+        <span class="nav-icon">👤</span>
+        <span>Logout</span>
+    </a>
+</nav>
+{% endblock %}

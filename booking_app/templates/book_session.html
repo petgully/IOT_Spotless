@@ -1,0 +1,242 @@
+{% extends 'base.html' %}
+
+{% block title %}Book Session - Petgully Spotless{% endblock %}
+
+{% block header %}
+<header class="app-header">
+    <div class="header-content">
+        <button class="header-back" onclick="history.back()">←</button>
+        <div class="header-title">Book Session</div>
+        <div style="width: 40px;"></div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<!-- Pet Info -->
+<div style="display: flex; align-items: center; gap: 15px; padding: 15px; background: var(--gray-50); border-radius: var(--radius); margin-bottom: 20px;">
+    <div style="width: 60px; height: 60px; background: var(--primary-gradient-soft); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem;">
+        🐕
+    </div>
+    <div>
+        <div style="font-weight: 600;">{{ pet.name }}</div>
+        <div style="font-size: 0.8rem; color: var(--gray-500);">{{ pet.breed or 'Mixed breed' }} • {{ pet.size|capitalize }}</div>
+    </div>
+</div>
+
+<form method="POST" action="{{ url_for('book_session', pet_id=pet.id) }}" id="bookingForm">
+    <!-- Session Type -->
+    <div class="card">
+        <h3 class="card-title" style="margin-bottom: 15px;">Choose Session Type</h3>
+        
+        <div class="session-types">
+            <label>
+                <input type="radio" name="session_type" value="small" {% if pet.size == 'small' %}checked{% endif %}>
+                <div class="session-type-card {% if pet.size == 'small' %}selected{% endif %}">
+                    <div class="session-type-icon">🛁</div>
+                    <div class="session-type-name">Small Pet</div>
+                    <div class="session-type-price">₹299</div>
+                </div>
+            </label>
+            <label>
+                <input type="radio" name="session_type" value="large" {% if pet.size == 'large' %}checked{% endif %}>
+                <div class="session-type-card {% if pet.size == 'large' %}selected{% endif %}">
+                    <div class="session-type-icon">🛁</div>
+                    <div class="session-type-name">Large Pet</div>
+                    <div class="session-type-price">₹399</div>
+                </div>
+            </label>
+            <label>
+                <input type="radio" name="session_type" value="medsmall">
+                <div class="session-type-card">
+                    <div class="session-type-icon">💊</div>
+                    <div class="session-type-name">Medicated</div>
+                    <div class="session-type-price">₹349</div>
+                </div>
+            </label>
+            <label>
+                <input type="radio" name="session_type" value="custdiy">
+                <div class="session-type-card">
+                    <div class="session-type-icon">✨</div>
+                    <div class="session-type-name">DIY</div>
+                    <div class="session-type-price">₹249</div>
+                </div>
+            </label>
+        </div>
+    </div>
+    
+    <!-- Date & Time -->
+    <div class="card">
+        <h3 class="card-title" style="margin-bottom: 15px;">📅 Select Date & Time</h3>
+        
+        <div style="display: flex; gap: 15px;">
+            <div class="form-group" style="flex: 1;">
+                <label class="form-label">Date</label>
+                <input type="date" name="booking_date" class="form-input" min="{{ now.strftime('%Y-%m-%d') if now else '' }}" required>
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label class="form-label">Time</label>
+                <select name="booking_time" class="form-input form-select" required>
+                    <option value="09:00">9:00 AM</option>
+                    <option value="10:00">10:00 AM</option>
+                    <option value="11:00">11:00 AM</option>
+                    <option value="12:00">12:00 PM</option>
+                    <option value="14:00">2:00 PM</option>
+                    <option value="15:00">3:00 PM</option>
+                    <option value="16:00">4:00 PM</option>
+                    <option value="17:00">5:00 PM</option>
+                    <option value="18:00">6:00 PM</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Customize Session -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">⚙️ Customize Session</h3>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="toggleAdvanced()">
+                <span id="advancedToggle">Show</span>
+            </button>
+        </div>
+        
+        <div id="advancedOptions" style="display: none;">
+            <p style="font-size: 0.8rem; color: var(--gray-500); margin-bottom: 20px;">
+                Adjust durations based on your pet's needs
+            </p>
+            
+            <!-- Shampoo Time -->
+            <div class="range-group">
+                <div class="range-header">
+                    <label class="form-label" style="margin: 0;">🧴 Shampoo Duration</label>
+                    <span class="range-value" id="svalDisplay">{{ defaults.sval }}s</span>
+                </div>
+                <input type="range" name="sval" class="range-input" 
+                       min="60" max="300" value="{{ defaults.sval }}" step="10"
+                       oninput="document.getElementById('svalDisplay').textContent = this.value + 's'">
+            </div>
+            
+            <!-- Conditioner Time -->
+            <div class="range-group">
+                <div class="range-header">
+                    <label class="form-label" style="margin: 0;">✨ Conditioner Duration</label>
+                    <span class="range-value" id="cvalDisplay">{{ defaults.cval }}s</span>
+                </div>
+                <input type="range" name="cval" class="range-input" 
+                       min="60" max="300" value="{{ defaults.cval }}" step="10"
+                       oninput="document.getElementById('cvalDisplay').textContent = this.value + 's'">
+            </div>
+            
+            <!-- Water Rinse -->
+            <div class="range-group">
+                <div class="range-header">
+                    <label class="form-label" style="margin: 0;">💧 Water Rinse Duration</label>
+                    <span class="range-value" id="wvalDisplay">60s</span>
+                </div>
+                <input type="range" name="wval" class="range-input" 
+                       min="30" max="120" value="60" step="10"
+                       oninput="document.getElementById('wvalDisplay').textContent = this.value + 's'">
+            </div>
+            
+            <!-- Drying Time -->
+            <div class="range-group">
+                <div class="range-header">
+                    <label class="form-label" style="margin: 0;">💨 Drying Duration</label>
+                    <span class="range-value" id="dryvalDisplay">{{ defaults.dryval }}s</span>
+                </div>
+                <input type="range" name="dryval" class="range-input" 
+                       min="180" max="900" value="{{ defaults.dryval }}" step="30"
+                       oninput="document.getElementById('dryvalDisplay').textContent = this.value + 's'">
+            </div>
+            
+            <!-- Disinfectant -->
+            <div class="range-group">
+                <div class="range-header">
+                    <label class="form-label" style="margin: 0;">🧹 Disinfectant Duration</label>
+                    <span class="range-value" id="dvalDisplay">60s</span>
+                </div>
+                <input type="range" name="dval" class="range-input" 
+                       min="30" max="120" value="60" step="10"
+                       oninput="document.getElementById('dvalDisplay').textContent = this.value + 's'">
+            </div>
+            
+            <!-- Conditioner Type -->
+            <div class="form-group">
+                <label class="form-label">Conditioner Type</label>
+                <select name="ctype" class="form-input form-select">
+                    <option value="100">Regular Conditioner</option>
+                    <option value="200">Medicated Conditioner</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Price Summary -->
+    <div class="booking-summary">
+        <div class="summary-row">
+            <span>Session Type</span>
+            <span id="summaryType">{{ 'Small Pet' if pet.size == 'small' else 'Large Pet' }}</span>
+        </div>
+        <div class="summary-row">
+            <span>Duration</span>
+            <span>~15-20 minutes</span>
+        </div>
+        <div class="summary-row">
+            <span>Total Amount</span>
+            <span id="summaryPrice">₹{{ 299 if pet.size == 'small' else 399 }}</span>
+        </div>
+    </div>
+    
+    <button type="submit" class="btn btn-primary">
+        <span>Confirm Booking</span>
+        <span>→</span>
+    </button>
+    
+    <p style="text-align: center; margin-top: 15px; font-size: 0.8rem; color: var(--gray-500);">
+        Payment will be collected at the station
+    </p>
+</form>
+
+<script>
+// Session type selection
+document.querySelectorAll('input[name="session_type"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        // Update selection UI
+        document.querySelectorAll('.session-type-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        this.closest('label').querySelector('.session-type-card').classList.add('selected');
+        
+        // Update price summary
+        const prices = {
+            'small': { name: 'Small Pet', price: 299 },
+            'large': { name: 'Large Pet', price: 399 },
+            'medsmall': { name: 'Medicated Small', price: 349 },
+            'medlarge': { name: 'Medicated Large', price: 449 },
+            'custdiy': { name: 'DIY Session', price: 249 }
+        };
+        
+        const selected = prices[this.value] || prices['small'];
+        document.getElementById('summaryType').textContent = selected.name;
+        document.getElementById('summaryPrice').textContent = '₹' + selected.price;
+    });
+});
+
+// Toggle advanced options
+function toggleAdvanced() {
+    const options = document.getElementById('advancedOptions');
+    const toggle = document.getElementById('advancedToggle');
+    
+    if (options.style.display === 'none') {
+        options.style.display = 'block';
+        toggle.textContent = 'Hide';
+    } else {
+        options.style.display = 'none';
+        toggle.textContent = 'Show';
+    }
+}
+
+// Set min date to today
+document.querySelector('input[name="booking_date"]').min = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}

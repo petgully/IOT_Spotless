@@ -1,0 +1,31 @@
+# =============================================================================
+# Systemd Service File for Petgully Spotless
+# =============================================================================
+# Copy this file to /etc/systemd/system/spotless.service
+# Then run:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable spotless
+#   sudo systemctl start spotless
+# =============================================================================
+
+[Unit]
+Description=Petgully Spotless - Pet Grooming System
+After=network.target mosquitto.service
+
+[Service]
+Type=simple
+User=spotless
+WorkingDirectory=/home/spotless/Project_Spotless/raspberry_pi
+ExecStart=/usr/bin/python3 /home/spotless/Project_Spotless/raspberry_pi/main.py --kiosk
+Restart=always
+RestartSec=10
+Environment=DISPLAY=:0
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=spotless
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+
+{% block title %}Booking Confirmed - Petgully Spotless{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 30px 0;">
+    <!-- Success Animation -->
+    <div style="width: 100px; height: 100px; background: linear-gradient(135deg, #10B981, #34D399); border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; animation: pulse 2s infinite;">
+        <span style="font-size: 3rem;">✓</span>
+    </div>
+    
+    <h1 style="color: #10B981; margin-bottom: 10px;">Booking Confirmed!</h1>
+    <p style="color: var(--gray-500);">Your grooming session is scheduled</p>
+</div>
+
+<!-- Booking Code -->
+<div class="qr-section">
+    <p style="color: var(--gray-500); margin-bottom: 10px;">Your Booking Code</p>
+    <div class="booking-code">{{ booking.booking_code }}</div>
+    <p style="font-size: 0.8rem; color: var(--gray-400);">Show this code at the station</p>
+    
+    <!-- QR Code -->
+    <div style="margin: 20px auto;">
+        {% if qr_image %}
+        <img src="data:image/png;base64,{{ qr_image }}" alt="QR Code" style="width: 180px; height: 180px; border-radius: var(--radius);">
+        {% else %}
+        <div style="width: 150px; height: 150px; background: var(--gray-100); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-direction: column; margin: 0 auto;">
+            <span style="font-size: 3rem;">📱</span>
+            <span style="font-size: 0.7rem; color: var(--gray-400);">Scan at kiosk</span>
+        </div>
+        {% endif %}
+    </div>
+    <p style="font-size: 0.8rem; color: var(--gray-400);">Scan this QR at the Petgully station</p>
+</div>
+
+<!-- Booking Details -->
+<div class="card">
+    <h3 class="card-title" style="margin-bottom: 15px;">📋 Booking Details</h3>
+    
+    <div class="booking-summary" style="background: var(--gray-50);">
+        <div class="summary-row">
+            <span>Pet</span>
+            <span style="font-weight: 600;">{{ booking.pet_name or 'N/A' }}</span>
+        </div>
+        <div class="summary-row">
+            <span>Session Type</span>
+            <span>{{ (booking.session_type or 'small')|capitalize }}</span>
+        </div>
+        <div class="summary-row">
+            <span>Date</span>
+            <span>{% if booking.booking_date %}{{ booking.booking_date.strftime('%d %b %Y') }}{% else %}Flexible{% endif %}</span>
+        </div>
+        <div class="summary-row">
+            <span>Time</span>
+            <span>{% if booking.booking_time %}{{ booking.booking_time }}{% else %}Flexible{% endif %}</span>
+        </div>
+        <div class="summary-row">
+            <span>Status</span>
+            <span class="booking-status {{ booking.status or 'pending' }}">{{ booking.status or 'pending' }}</span>
+        </div>
+        <div class="summary-row" style="border-top: 2px solid var(--gray-200); padding-top: 15px; margin-top: 10px;">
+            <span>Amount</span>
+            <span style="font-size: 1.25rem; font-weight: 700; color: var(--primary-purple);">₹{{ (booking.amount or 299)|int }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Session Parameters -->
+<div class="card">
+    <h3 class="card-title" style="margin-bottom: 15px;">⚙️ Session Settings</h3>
+    
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+        <div style="background: var(--gray-50); padding: 12px; border-radius: var(--radius); text-align: center;">
+            <div style="font-size: 1.5rem;">🧴</div>
+            <div style="font-weight: 600;">{{ booking.sval or 120 }}s</div>
+            <div style="font-size: 0.7rem; color: var(--gray-500);">Shampoo</div>
+        </div>
+        <div style="background: var(--gray-50); padding: 12px; border-radius: var(--radius); text-align: center;">
+            <div style="font-size: 1.5rem;">✨</div>
+            <div style="font-weight: 600;">{{ booking.cval or 120 }}s</div>
+            <div style="font-size: 0.7rem; color: var(--gray-500);">Conditioner</div>
+        </div>
+        <div style="background: var(--gray-50); padding: 12px; border-radius: var(--radius); text-align: center;">
+            <div style="font-size: 1.5rem;">💧</div>
+            <div style="font-weight: 600;">{{ booking.wval or 60 }}s</div>
+            <div style="font-size: 0.7rem; color: var(--gray-500);">Water Rinse</div>
+        </div>
+        <div style="background: var(--gray-50); padding: 12px; border-radius: var(--radius); text-align: center;">
+            <div style="font-size: 1.5rem;">💨</div>
+            <div style="font-weight: 600;">{{ booking.dryval or 480 }}s</div>
+            <div style="font-size: 0.7rem; color: var(--gray-500);">Drying</div>
+        </div>
+    </div>
+</div>
+
+<!-- Instructions -->
+<div class="card" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.1)); border: 1px solid var(--primary-purple);">
+    <h3 style="color: var(--primary-purple); margin-bottom: 10px;">📍 What's Next?</h3>
+    <ol style="padding-left: 20px; color: var(--gray-600); font-size: 0.9rem;">
+        <li style="margin-bottom: 8px;">Visit your nearest Petgully Spotless station</li>
+        <li style="margin-bottom: 8px;">Scan your booking code at the kiosk</li>
+        <li style="margin-bottom: 8px;">Place your pet in the grooming station</li>
+        <li>Relax while we pamper your pet! 🐾</li>
+    </ol>
+</div>
+
+<!-- Actions -->
+<div style="padding: 20px 0;">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-primary" style="margin-bottom: 12px;">
+        <span>Back to Dashboard</span>
+    </a>
+    <button onclick="shareBooking()" class="btn btn-outline">
+        <span>Share Booking</span>
+        <span>📤</span>
+    </button>
+</div>
+
+<style>
+@keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+}
+</style>
+
+<script>
+function shareBooking() {
+    const text = "🐾 Pet Grooming Booking\n\nBooking Code: {{ booking.booking_code }}\nPet: {{ booking.pet_name or 'Your Pet' }}\nDate: {% if booking.booking_date %}{{ booking.booking_date.strftime('%d %b %Y') }}{% else %}Flexible{% endif %}\n\nPetgully Spotless - Smart Pet Grooming";
+    
+    if (navigator.share) {
+        navigator.share({
+            title: 'Petgully Booking',
+            text: text
+        });
+    } else {
+        navigator.clipboard.writeText(text);
+        alert('Booking details copied to clipboard!');
+    }
+}
+</script>
+{% endblock %}

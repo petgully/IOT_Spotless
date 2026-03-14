@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}Petgully Spotless - Smart Pet Grooming{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section" style="margin: -20px -20px 20px -20px; padding-bottom: 60px;">
+    <h1 class="hero-title">Get your Pet Pampered</h1>
+    <p class="hero-subtitle">India's First Automated Pet Grooming Station</p>
+    <div style="margin-top: 30px;">
+        <img src="{{ url_for('static', filename='images/hero-pet.png') }}" alt="Happy Pet" 
+             style="max-width: 180px; border-radius: 50%; background: rgba(255,255,255,0.2); padding: 10px;"
+             onerror="this.style.display='none'">
+    </div>
+</div>
+
+<!-- Features Section -->
+<div class="card" style="margin-top: -40px; position: relative; z-index: 10;">
+    <h3 style="margin-bottom: 15px; color: var(--gray-700);">Why Choose Us?</h3>
+    
+    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+        <div style="flex: 1; text-align: center; padding: 15px; background: var(--gray-50); border-radius: var(--radius);">
+            <div style="font-size: 2rem;">🛁</div>
+            <div style="font-weight: 600; margin-top: 8px;">Smart Wash</div>
+            <div style="font-size: 0.75rem; color: var(--gray-500);">Automated grooming</div>
+        </div>
+        <div style="flex: 1; text-align: center; padding: 15px; background: var(--gray-50); border-radius: var(--radius);">
+            <div style="font-size: 2rem;">⏱️</div>
+            <div style="font-weight: 600; margin-top: 8px;">Quick</div>
+            <div style="font-size: 0.75rem; color: var(--gray-500);">15-20 minutes</div>
+        </div>
+        <div style="flex: 1; text-align: center; padding: 15px; background: var(--gray-50); border-radius: var(--radius);">
+            <div style="font-size: 2rem;">💝</div>
+            <div style="font-weight: 600; margin-top: 8px;">Safe</div>
+            <div style="font-size: 0.75rem; color: var(--gray-500);">Pet-friendly</div>
+        </div>
+    </div>
+</div>
+
+<!-- Services Section -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Our Services</h3>
+    </div>
+    
+    <div class="session-types">
+        <div class="session-type-card">
+            <div class="session-type-icon">🐕</div>
+            <div class="session-type-name">Small Pet</div>
+            <div style="font-size: 0.8rem; color: var(--gray-500);">Up to 10kg</div>
+            <div class="session-type-price">₹299</div>
+        </div>
+        <div class="session-type-card">
+            <div class="session-type-icon">🐕‍🦺</div>
+            <div class="session-type-name">Large Pet</div>
+            <div style="font-size: 0.8rem; color: var(--gray-500);">10kg+</div>
+            <div class="session-type-price">₹399</div>
+        </div>
+        <div class="session-type-card">
+            <div class="session-type-icon">💊</div>
+            <div class="session-type-name">Medicated</div>
+            <div style="font-size: 0.8rem; color: var(--gray-500);">Skin care</div>
+            <div class="session-type-price">₹349</div>
+        </div>
+        <div class="session-type-card">
+            <div class="session-type-icon">✨</div>
+            <div class="session-type-name">DIY</div>
+            <div style="font-size: 0.8rem; color: var(--gray-500);">Self service</div>
+            <div class="session-type-price">₹249</div>
+        </div>
+    </div>
+</div>
+
+<!-- CTA Section -->
+<div style="padding: 20px 0;">
+    {% if session.get('user_id') %}
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+            <span>Go to Dashboard</span>
+            <span>→</span>
+        </a>
+    {% else %}
+        <a href="{{ url_for('login') }}" class="btn btn-primary" style="margin-bottom: 12px;">
+            <span>Login</span>
+            <span>→</span>
+        </a>
+        <a href="{{ url_for('register') }}" class="btn btn-outline">
+            <span>Create Account</span>
+        </a>
+    {% endif %}
+</div>
+
+<!-- Info -->
+<div style="text-align: center; padding: 20px; color: var(--gray-500); font-size: 0.8rem;">
+    <p>📍 Located at your nearest Petgully station</p>
+    <p style="margin-top: 8px;">📞 Support: 1800-PET-GULLY</p>
+</div>
+{% endblock %}

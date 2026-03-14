@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Petgully Spotless{% endblock %}
+
+{% block header %}
+<header class="app-header">
+    <div class="header-content">
+        <div>
+            <div style="font-size: 0.8rem; opacity: 0.8;">Hello,</div>
+            <div class="header-title">{{ session.get('user_name', 'User') }} 👋</div>
+        </div>
+        <div class="header-user">
+            <a href="{{ url_for('logout') }}" style="color: white; font-size: 0.8rem;">Logout</a>
+            <div class="user-avatar">{{ session.get('user_name', 'U')[0] }}</div>
+        </div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<!-- Quick Stats -->
+<div style="display: flex; gap: 12px; margin-bottom: 20px;">
+    <div style="flex: 1; background: linear-gradient(135deg, #8B5CF6, #A78BFA); padding: 15px; border-radius: var(--radius); color: white;">
+        <div style="font-size: 2rem; font-weight: 700;">{{ pets|length }}</div>
+        <div style="font-size: 0.8rem; opacity: 0.9;">My Pets</div>
+    </div>
+    <div style="flex: 1; background: linear-gradient(135deg, #EC4899, #F472B6); padding: 15px; border-radius: var(--radius); color: white;">
+        <div style="font-size: 2rem; font-weight: 700;">{{ bookings|length }}</div>
+        <div style="font-size: 0.8rem; opacity: 0.9;">Bookings</div>
+    </div>
+</div>
+
+<!-- My Pets Section -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">🐾 My Pets</h3>
+        <a href="{{ url_for('add_pet') }}" class="card-link">+ Add New</a>
+    </div>
+    
+    <div class="pet-grid">
+        {% for pet in pets %}
+        <div class="pet-card" onclick="location.href='{{ url_for('view_pet', pet_id=pet.id) }}'">
+            <div class="pet-avatar">
+                {% if pet.photo_url %}
+                    <img src="{{ pet.photo_url }}" alt="{{ pet.name }}">
+                {% else %}
+                    <span class="pet-avatar-placeholder">🐕</span>
+                {% endif %}
+            </div>
+            <div class="pet-name">{{ pet.name }}</div>
+            <div class="pet-breed">{{ pet.breed or 'Mixed breed' }}</div>
+            <span class="pet-size-badge {{ pet.size }}">{{ pet.size|upper }}</span>
+        </div>
+        {% endfor %}
+        
+        <!-- Add Pet Card -->
+        <a href="{{ url_for('add_pet') }}" class="pet-card add-pet-card" style="text-decoration: none;">
+            <div class="add-icon">+</div>
+            <span>Add Pet</span>
+        </a>
+    </div>
+</div>
+
+<!-- Recent Bookings -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">📅 Recent Bookings</h3>
+    </div>
+    
+    {% if bookings %}
+    <ul class="booking-list">
+        {% for booking in bookings[:5] %}
+        <li class="booking-item" onclick="location.href='{{ url_for('booking_confirmation', code=booking.booking_code) }}'">
+            <div class="booking-icon">🛁</div>
+            <div class="booking-details">
+                <div class="booking-pet">{{ booking.pet_name }}</div>
+                <div class="booking-info">
+                    {{ booking.session_type|capitalize }} • 
+                    {{ booking.booking_date.strftime('%d %b') if booking.booking_date else 'Pending' }}
+                </div>
+            </div>
+            <span class="booking-status {{ booking.status }}">{{ booking.status }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div style="text-align: center; padding: 30px; color: var(--gray-400);">
+        <div style="font-size: 3rem; margin-bottom: 10px;">📭</div>
+        <p>No bookings yet</p>
+        <p style="font-size: 0.8rem;">Book a grooming session for your pet!</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Quick Book CTA -->
+{% if pets %}
+<div style="padding: 20px 0;">
+    <p style="text-align: center; color: var(--gray-500); margin-bottom: 15px;">Ready to book?</p>
+    <a href="{{ url_for('view_pet', pet_id=pets[0].id) }}" class="btn btn-primary">
+        <span>Book Grooming Session</span>
+        <span>→</span>
+    </a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block nav %}
+<nav class="bottom-nav">
+    <a href="{{ url_for('dashboard') }}" class="nav-item active">
+        <span class="nav-icon">🏠</span>
+        <span>Home</span>
+    </a>
+    <a href="{{ url_for('add_pet') }}" class="nav-item">
+        <span class="nav-icon">➕</span>
+        <span>Add Pet</span>
+    </a>
+    <a href="#" class="nav-item">
+        <span class="nav-icon">📅</span>
+        <span>Bookings</span>
+    </a>
+    <a href="{{ url_for('logout') }}" class="nav-item">
+        <span class="nav-icon">👤</span>
+        <span>Logout</span>
+    </a>
+</nav>
+{% endblock %}

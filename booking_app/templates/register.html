@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}Register - Petgully Spotless{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 20px 0;">
+    <div style="width: 80px; height: 80px; background: var(--primary-gradient); border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
+        <span style="font-size: 2.5rem;">🐾</span>
+    </div>
+    <h1 style="font-size: 1.5rem; margin-bottom: 8px;">Create Account</h1>
+    <p style="color: var(--gray-500);">Join Petgully family</p>
+</div>
+
+<form method="POST" action="{{ url_for('register') }}">
+    <div class="form-group">
+        <label class="form-label">Full Name *</label>
+        <input type="text" name="name" class="form-input" placeholder="Your name" required>
+    </div>
+    
+    <div class="form-group">
+        <label class="form-label">Email Address *</label>
+        <input type="email" name="email" class="form-input" placeholder="your@email.com" required>
+    </div>
+    
+    <div class="form-group">
+        <label class="form-label">Phone Number</label>
+        <input type="tel" name="phone" class="form-input" placeholder="+91 98765 43210">
+    </div>
+    
+    <div class="form-group">
+        <label class="form-label">Password *</label>
+        <input type="password" name="password" class="form-input" placeholder="Min 6 characters" required minlength="6">
+    </div>
+    
+    <div class="form-group">
+        <label class="form-label">Confirm Password *</label>
+        <input type="password" name="confirm_password" class="form-input" placeholder="Repeat password" required>
+    </div>
+    
+    <div style="margin-bottom: 20px;">
+        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 0.85rem; color: var(--gray-600);">
+            <input type="checkbox" required style="margin-top: 4px;">
+            <span>I agree to the <a href="#" style="color: var(--primary-purple);">Terms of Service</a> and <a href="#" style="color: var(--primary-purple);">Privacy Policy</a></span>
+        </label>
+    </div>
+    
+    <button type="submit" class="btn btn-primary">
+        <span>Create Account</span>
+        <span>→</span>
+    </button>
+</form>
+
+<div style="text-align: center; margin-top: 30px;">
+    <p style="color: var(--gray-500);">
+        Already have an account? 
+        <a href="{{ url_for('login') }}" style="color: var(--primary-purple); font-weight: 600;">Login</a>
+    </p>
+</div>
+
+<div style="text-align: center; margin-top: 20px;">
+    <a href="{{ url_for('home') }}" style="color: var(--gray-400); font-size: 0.875rem;">← Back to Home</a>
+</div>
+{% endblock %}

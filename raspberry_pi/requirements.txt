@@ -1,0 +1,35 @@
+# =============================================================================
+# Python Dependencies for Project Spotless - Raspberry Pi Master Controller
+# =============================================================================
+# Install with: pip install -r requirements.txt
+# =============================================================================
+
+# MQTT Client
+paho-mqtt>=1.6.0
+
+# GPIO Control for Raspberry Pi 5 (direct GPIO relays)
+# Install on Raspberry Pi: sudo apt install python3-gpiod
+# Or via pip: pip install gpiod
+gpiod>=1.5.0
+
+# Web Kiosk (Flask + WebSocket)
+flask>=2.3.0
+flask-socketio>=5.3.0
+python-socketio>=5.8.0
+python-engineio>=4.5.0
+
+# Database connectivity (AWS RDS Aurora MySQL)
+pymysql>=1.1.0
+cryptography>=3.4.0    # For SSL connections
+
+# Environment variables (for database credentials)
+# python-dotenv>=0.19.0
+
+# JSON handling (standard library)
+# json is built-in
+
+# Logging (standard library)
+# logging is built-in
+
+# HTTP requests
+requests>=2.28.0
