@@ -224,7 +224,14 @@ def request_node_status(nid):
 
 def start_mqtt():
     global mqtt_client
-    mqtt_client = mqtt.Client(client_id="spotless_admin_dashboard")
+    try:
+        mqtt_client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION1,
+            client_id="spotless_admin_dashboard"
+        )
+    except (AttributeError, TypeError):
+        mqtt_client = mqtt.Client(client_id="spotless_admin_dashboard")
+
     mqtt_client.on_connect = on_mqtt_connect
     mqtt_client.on_disconnect = on_mqtt_disconnect
     mqtt_client.on_message = on_mqtt_message
