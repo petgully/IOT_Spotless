@@ -1,0 +1,163 @@
+==============================================================================
+  PROJECT SPOTLESS — MASTER CHECKLIST
+  Last updated: 2026-03-14
+==============================================================================
+
+
+=== HARDWARE ===
+
+  [DONE] ESP32 Node 1 — Flashed with correct config (WiFi, MQTT broker IP)
+  [DONE] ESP32 Node 2 — Flashed with correct config
+  [DONE] ESP32 Node 3 — Flashed with correct config
+  [DONE] Raspberry Pi 5 — OS installed, SSH access working
+  [DONE] Mosquitto MQTT broker — Installed & running on Pi (port 1883)
+  [DONE] Static IP — Configured on Pi via nmcli (so ESP32s always find it)
+  [    ] ESP32 nodes connecting to Pi broker — Verify all 3 show ONLINE
+
+
+=== GIT & REPO ===
+
+  [DONE] GitHub repo created — petgully/IOT_Spotless (private)
+  [DONE] Default branch renamed — master → main
+  [DONE] .gitignore — Excludes .env, venv, __pycache__, .spotless/
+  [DONE] .env.example — Template with placeholder credentials (no real passwords)
+  [DONE] Feature branches used for major changes
+
+
+=== CODEBASE — MODULAR REFACTOR ===
+
+  [DONE] session_stages.py      — Stage definitions (13 session types)
+                                   Extracted from web_server.py
+  [DONE] qr_validator.py        — QR validation (4 paths: booking, config, prefix, direct)
+                                   Extracted from web_server.py
+  [DONE] db_manager.py          — Slimmed to connection + session_config queries only
+                                   Hardcoded passwords REMOVED (uses .env now)
+  [DONE] db_bookings.py         — Booking lookup & status updates (NEW)
+  [DONE] db_sessions.py         — Session/stage/event logging functions (NEW)
+  [DONE] session_runner.py      — Background session execution with callback interface (NEW)
+                                   No Flask/SocketIO dependency
+  [DONE] spotless_controller.py — Hardware control class (renamed from spotless_functions.py)
+                                   Duplicate SESSION_PRESETS removed
+  [DONE] kiosk/web_server.py    — Slimmed from 697 → 163 lines (routes only)
+  [DONE] main.py                — Updated imports for new module names
+  [DONE] test files updated     — test_full_cycle.py, test_db_connection.py
+  [DONE] Import verification    — All 9 modules pass clean import test
+
+  Old file still on disk (can delete):
+    spotless_functions.py — replaced by spotless_controller.py
+
+
+=== EXISTING MODULES (unchanged, already well-structured) ===
+
+  [DONE] config.py              — MQTT & node constants (3 nodes, relay counts)
+  [DONE] mqtt_client.py         — MQTT pub/sub client for ESP32 communication
+  [DONE] node_controller.py     — High-level ESP32 node control (wraps MQTT)
+  [DONE] device_map.py          — Friendly name → node+relay mapping (DeviceController)
+  [DONE] gpio_controller.py     — Raspberry Pi direct GPIO relays (dry, geyser)
+  [DONE] config_manager.py      — Machine ID, session params, offline fallback
+  [DONE] email_service.py       — Gmail SMTP notifications
+  [DONE] logging_config.py      — File + console + DB logging
+
+
+=== INITIALIZATION PHASE (tested & working) ===
+
+  [DONE] #1 DB Logging
+         - system_logs table created in Aurora DB
+         - db_log_handler.py — background-thread batch writer
+         - Integrated into logging_config.py
+         - TESTED: 8 logs written to DB + read back successfully
+
+  [DONE] #2 QR Check & Verify
+         - qr_validator.py tested against REAL Aurora DB
+         - Booking lookup: PG2FD3862D → Swetha B / Oreo  ✓
+         - session_config: DEFAULT_SMALL → small           ✓
+         - Prefix match: 8/8 passed (SM, LG, TEST, etc.)  ✓
+         - Direct name: 5/5 passed                         ✓
+         - Invalid rejection: 4/4 passed                   ✓
+         - TOTAL: 20/20 tests passed
+
+  [DONE] #3 Email
+         - Gmail SMTP tested — emails arrive at management@petgully.com
+         - send_session_start_email() added to EmailService
+         - Wired into session_runner.py (fires on session START + COMPLETION)
+         - TESTED: Both startup + session-start emails sent successfully
+
+  [DONE] #4 Kiosk Mode
+         - scripts/spotless-kiosk.service — systemd service file
+         - scripts/setup_kiosk.sh — one-time setup (auto-login, fullscreen, no screensaver)
+         - NOT YET DEPLOYED on Pi (run: sudo bash scripts/setup_kiosk.sh)
+
+
+=== DATABASE TABLES ===
+
+  [DONE] bookings         — Customer bookings (from booking app)
+  [DONE] customers        — Customer info (from booking app)
+  [DONE] pets             — Pet info (from booking app)
+  [DONE] session_config   — Session presets (DEFAULT_SMALL, DEFAULT_LARGE, etc.)
+  [DONE] session_logs     — Session lifecycle tracking
+  [DONE] session_stages   — Individual stage tracking (shampoo, water, etc.)
+  [DONE] session_events   — Granular event log (relay_on, relay_off, etc.)
+  [DONE] system_logs      — Application logs from Python (new!)
+
+
+=== SCRIPTS ===
+
+  [DONE] scripts/setup_and_check.sh  — Full Pi setup (Mosquitto, Python env, node check)
+  [DONE] scripts/check_nodes.sh      — Quick ESP32 node status check
+  [DONE] scripts/setup_kiosk.sh      — Kiosk auto-start setup
+  [DONE] scripts/start_kiosk.sh      — Manual kiosk launcher
+
+
+=== DOCUMENTATION ===
+
+  [DONE] docs/QUICK_SETUP.md         — Step-by-step setup for new devices
+  [DONE] docs/PROJECT_OVERVIEW.md    — Full architecture + data flow + testing plan
+  [DONE] README.md                   — Project overview
+  [DONE] SETUP_GUIDE.md              — Hardware + software setup
+
+
+=== CURSOR SKILLS ===
+
+  [DONE] .cursor/skills/flash-esp32/SKILL.md — Automated ESP32 flashing
+
+
+=== BOOKING APP ===
+
+  [DONE] booking_app/app.py — Customer-facing booking + QR generation
+         Runs independently, shares Aurora DB with Pi
+
+
+==============================================================================
+  NEXT STEPS — NOT YET DONE
+==============================================================================
+
+  [TODO] Session type mapping
+         Booking app uses: complete_pkg, bath_pkg
+         Spotless uses: small, large, custdiy, etc.
+         Need a mapping so booking QR codes resolve to correct session type
+
+  [TODO] DIY session definitions
+         Define diy_small (and later diy_medium, diy_xl)
+         with correct stage timings for this machine
+
+  [TODO] Extra drying add-on
+         Feature: +5 min drying if customer selects it
+
+  [TODO] Full end-to-end test on Pi
+         QR scan → DB lookup → session run → DB update → email
+
+  [TODO] Deploy kiosk mode on Pi
+         Run: sudo bash scripts/setup_kiosk.sh
+         Then reboot to verify auto-start
+
+  [TODO] Kiosk UI polish
+         Fullscreen layout, session progress display, timer
+
+  [TODO] Delete old spotless_functions.py
+         Replaced by spotless_controller.py, nothing imports it
+
+  [TODO] Commit & push refactored code
+         All changes are local — need to commit to a branch and push
+
+
+==============================================================================

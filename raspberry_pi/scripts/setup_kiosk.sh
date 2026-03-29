@@ -1,114 +1,120 @@
 #!/bin/bash
 # =============================================================================
-# Petgully Spotless - Kiosk Setup Script
+# Project Spotless — Kiosk Mode Setup Script
 # =============================================================================
-# Run this script once to set up the Raspberry Pi for kiosk mode
+# Run this ONCE on the Raspberry Pi to set up auto-start:
+#   1. Flask backend via systemd  (starts on boot)
+#   2. Chromium browser in kiosk mode (fullscreen, no toolbar)
 #
-# Usage:
-#   sudo ./setup_kiosk.sh
+# Usage:  sudo bash setup_kiosk.sh
 # =============================================================================
 
 set -e
 
-echo "==========================================="
-echo "  Petgully Spotless - Kiosk Setup"
-echo "==========================================="
+# --- Configuration ---
+SPOTLESS_USER="${SUDO_USER:-spotless}"
+SPOTLESS_HOME="/home/$SPOTLESS_USER"
+PROJECT_DIR="$SPOTLESS_HOME/IOT_Spotless/raspberry_pi"
+KIOSK_URL="http://localhost:5000"
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root (sudo ./setup_kiosk.sh)"
-    exit 1
-fi
+echo "============================================="
+echo "  Project Spotless — Kiosk Setup"
+echo "============================================="
+echo "  User:        $SPOTLESS_USER"
+echo "  Project dir: $PROJECT_DIR"
+echo "  Kiosk URL:   $KIOSK_URL"
+echo ""
 
-# Update system
-echo "Updating system packages..."
-apt-get update
-apt-get upgrade -y
+# --- Step 1: Install the systemd service ---
+echo "[1/4] Installing spotless-kiosk systemd service..."
+cp "$PROJECT_DIR/scripts/spotless-kiosk.service" /etc/systemd/system/spotless-kiosk.service
 
-# Install required packages
-echo "Installing required packages..."
-apt-get install -y \
-    python3-pip \
-    python3-venv \
-    chromium-browser \
-    unclutter \
-    xdotool \
-    mosquitto \
-    mosquitto-clients \
-    git
+# Update paths if the user is different from 'spotless'
+sed -i "s|User=spotless|User=$SPOTLESS_USER|g" /etc/systemd/system/spotless-kiosk.service
+sed -i "s|Group=spotless|Group=$SPOTLESS_USER|g" /etc/systemd/system/spotless-kiosk.service
+sed -i "s|/home/spotless|$SPOTLESS_HOME|g" /etc/systemd/system/spotless-kiosk.service
 
-# Install Python packages
-echo "Installing Python dependencies..."
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+systemctl daemon-reload
+systemctl enable spotless-kiosk.service
+echo "  Done. Service enabled at boot."
 
-cd "$PROJECT_DIR"
-pip3 install -r requirements.txt
+# --- Step 2: Create Chromium kiosk autostart ---
+echo ""
+echo "[2/4] Setting up Chromium kiosk autostart..."
 
-# Create spotless user if doesn't exist
-if ! id "spotless" &>/dev/null; then
-    echo "Creating spotless user..."
-    useradd -m -s /bin/bash spotless
-    usermod -aG gpio,i2c,spi spotless
-fi
-
-# Create spotless directories
-echo "Creating directories..."
-mkdir -p /home/spotless/.spotless/logs
-mkdir -p /home/spotless/.spotless/sessions
-chown -R spotless:spotless /home/spotless/.spotless
-
-# Set up auto-login (optional)
-echo "Setting up auto-login..."
-mkdir -p /etc/systemd/system/getty@tty1.service.d
-cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf << EOF
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin spotless --noclear %I \$TERM
-EOF
-
-# Set up autostart for desktop
-echo "Setting up kiosk autostart..."
-AUTOSTART_DIR="/home/spotless/.config/lxsession/LXDE-pi"
+AUTOSTART_DIR="$SPOTLESS_HOME/.config/autostart"
 mkdir -p "$AUTOSTART_DIR"
-cat > "$AUTOSTART_DIR/autostart" << EOF
+
+cat > "$AUTOSTART_DIR/spotless-browser.desktop" << DESKTOP_EOF
+[Desktop Entry]
+Type=Application
+Name=Spotless Kiosk Browser
+Comment=Open Spotless kiosk UI in fullscreen
+Exec=bash -c 'sleep 8 && chromium-browser --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --incognito $KIOSK_URL'
+X-GNOME-Autostart-enabled=true
+DESKTOP_EOF
+
+chown "$SPOTLESS_USER:$SPOTLESS_USER" "$AUTOSTART_DIR/spotless-browser.desktop"
+echo "  Done. Chromium will open fullscreen on login."
+
+# --- Step 3: Disable screen blanking / screensaver ---
+echo ""
+echo "[3/4] Disabling screen blanking..."
+
+LXSESSION_DIR="$SPOTLESS_HOME/.config/lxsession/LXDE-pi"
+mkdir -p "$LXSESSION_DIR"
+
+# Disable screensaver via xset in autostart
+LXDE_AUTOSTART="$LXSESSION_DIR/autostart"
+if [ ! -f "$LXDE_AUTOSTART" ]; then
+    cat > "$LXDE_AUTOSTART" << LXDE_EOF
 @lxpanel --profile LXDE-pi
 @pcmanfm --desktop --profile LXDE-pi
 @xset s off
 @xset -dpms
 @xset s noblank
-@bash $PROJECT_DIR/scripts/start_kiosk.sh
-EOF
-chown -R spotless:spotless /home/spotless/.config
-
-# Disable screen blanking in lightdm
-if [ -f /etc/lightdm/lightdm.conf ]; then
-    echo "Configuring lightdm..."
-    sed -i 's/#xserver-command=X/xserver-command=X -s 0 dpms/' /etc/lightdm/lightdm.conf
+LXDE_EOF
+else
+    # Append if not already present
+    grep -q "xset s off" "$LXDE_AUTOSTART" || echo "@xset s off" >> "$LXDE_AUTOSTART"
+    grep -q "xset -dpms" "$LXDE_AUTOSTART" || echo "@xset -dpms" >> "$LXDE_AUTOSTART"
+    grep -q "xset s noblank" "$LXDE_AUTOSTART" || echo "@xset s noblank" >> "$LXDE_AUTOSTART"
 fi
 
-# Set up systemd service
-echo "Installing systemd service..."
-cp "$PROJECT_DIR/scripts/spotless.service" /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable spotless
+chown -R "$SPOTLESS_USER:$SPOTLESS_USER" "$LXSESSION_DIR"
+echo "  Done. Screen will stay on permanently."
 
-# Configure Mosquitto (MQTT broker)
-echo "Configuring Mosquitto MQTT broker..."
-cat > /etc/mosquitto/conf.d/spotless.conf << EOF
-listener 1883
-allow_anonymous true
-EOF
-systemctl restart mosquitto
-systemctl enable mosquitto
+# --- Step 4: Enable auto-login (desktop) ---
+echo ""
+echo "[4/4] Enabling desktop auto-login..."
+
+LIGHTDM_CONF="/etc/lightdm/lightdm.conf"
+if [ -f "$LIGHTDM_CONF" ]; then
+    sed -i "s/^#\?autologin-user=.*/autologin-user=$SPOTLESS_USER/" "$LIGHTDM_CONF"
+    echo "  Done. Auto-login set for $SPOTLESS_USER."
+else
+    # Raspberry Pi OS Bookworm uses raspi-config for this
+    raspi-config nonint do_boot_behaviour B4 2>/dev/null || true
+    echo "  Done (via raspi-config)."
+fi
 
 echo ""
-echo "==========================================="
-echo "  Setup Complete!"
-echo "==========================================="
+echo "============================================="
+echo "  Kiosk setup complete!"
 echo ""
-echo "Please reboot the system to apply changes:"
-echo "  sudo reboot"
+echo "  On next reboot:"
+echo "    1. spotless-kiosk.service starts Flask on :5000"
+echo "    2. Chromium opens $KIOSK_URL fullscreen"
+echo "    3. Screen never blanks"
 echo ""
-echo "The kiosk will start automatically after reboot."
+echo "  Manual controls:"
+echo "    sudo systemctl start spotless-kiosk"
+echo "    sudo systemctl stop spotless-kiosk"
+echo "    sudo systemctl status spotless-kiosk"
+echo "    journalctl -u spotless-kiosk -f    (live logs)"
 echo ""
+echo "  To EXIT kiosk browser: Alt+F4"
+echo "  To DISABLE kiosk mode:"
+echo "    sudo systemctl disable spotless-kiosk"
+echo "    rm $AUTOSTART_DIR/spotless-browser.desktop"
+echo "============================================="

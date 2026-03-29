@@ -27,6 +27,8 @@ from datetime import datetime
 # Setup path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import db_sessions
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -104,11 +106,11 @@ def test_qr_validation():
     print_section("3. QR Code Validation")
     
     try:
-        # Import the web server's validate function
-        from kiosk.web_server import validate_qr_code, get_database
+        from qr_validator import validate_qr_code
+        from db_manager import DatabaseManager, DEFAULT_DB_CONFIG
         
-        # Ensure database is connected
-        get_database()
+        _db = DatabaseManager(DEFAULT_DB_CONFIG)
+        _db.connect()
         
         test_cases = [
             ("DEFAULT_SMALL", "small", True),
@@ -120,7 +122,7 @@ def test_qr_validation():
         
         all_passed = True
         for qr_code, expected_type, expect_db in test_cases:
-            result = validate_qr_code(qr_code)
+            result = validate_qr_code(qr_code, db=_db)
             if result and result.get('session_type') == expected_type:
                 print_result(f"QR: {qr_code}", True, 
                            f"Type: {result['session_type']}, From DB: {result.get('from_database', False)}")
@@ -175,7 +177,8 @@ def test_session_logging(db):
         
         # Step 1: Log session activation
         print("  Step 1: Activating session...")
-        session_id = db.log_session_activated(
+        session_id = db_sessions.log_session_activated(
+            db,
             mobile_number="TEST_USER_001",
             machine_id=machine_id,
             session_type=session_type,
@@ -194,8 +197,8 @@ def test_session_logging(db):
         
         # Step 2: Start session
         print("  Step 2: Starting session...")
-        db.log_session_start(session_id)
-        db.log_session_in_progress(session_id)
+        db_sessions.log_session_start(db, session_id)
+        db_sessions.log_session_in_progress(db, session_id)
         print_result("Session start", True)
         
         # Step 3: Log stages
@@ -210,31 +213,30 @@ def test_session_logging(db):
         stage_order = 0
         for stage_name, duration in stages:
             stage_order += 1
-            stage_id = db.log_stage_start(session_id, stage_name, stage_order, duration)
+            stage_id = db_sessions.log_stage_start(db, session_id, stage_name, stage_order, duration)
             
             if stage_id:
-                # Simulate stage running
                 time.sleep(0.5)
-                db.log_stage_complete(stage_id, duration)
+                db_sessions.log_stage_complete(db, stage_id, duration)
                 print_result(f"Stage: {stage_name}", True, f"Duration: {duration}s")
             else:
                 print_result(f"Stage: {stage_name}", False)
         
         # Step 4: Log events
         print("  Step 4: Logging events...")
-        db.log_event(session_id, "relay_on", {"relay": "shampoo_pump", "node": 1})
-        db.log_event(session_id, "relay_off", {"relay": "shampoo_pump", "node": 1})
+        db_sessions.log_event(db, session_id, "relay_on", {"relay": "shampoo_pump", "node": 1})
+        db_sessions.log_event(db, session_id, "relay_off", {"relay": "shampoo_pump", "node": 1})
         print_result("Event logging", True)
         
         # Step 5: Complete session
         print("  Step 5: Completing session...")
         total_duration = sum(d for _, d in stages)
-        db.log_session_complete(session_id, total_duration)
+        db_sessions.log_session_complete(db, session_id, total_duration)
         print_result("Session complete", True, f"Total duration: {total_duration}s")
         
         # Step 6: Verify in database
         print("  Step 6: Verifying in database...")
-        details = db.get_session_details(session_id)
+        details = db_sessions.get_session_details(db, session_id)
         if details and details.get('session'):
             session = details['session']
             stages_count = len(details.get('stages', []))
@@ -353,7 +355,8 @@ def test_kiosk_webserver():
     print_section("8. Kiosk Web Server")
     
     try:
-        from kiosk.web_server import app, SESSION_STAGES
+        from session_stages import SESSION_STAGES
+        from kiosk.web_server import app
         
         print(f"  Flask app: {app.name}")
         print(f"  Session types: {len(SESSION_STAGES)}")
@@ -406,7 +409,8 @@ def run_simulated_session(db, duration_per_stage=2):
         ]
         
         # Start session
-        session_id = db.log_session_activated(
+        session_id = db_sessions.log_session_activated(
+            db,
             mobile_number="SIM_USER",
             machine_id=machine_id,
             session_type=session_type,
@@ -418,15 +422,15 @@ def run_simulated_session(db, duration_per_stage=2):
             print_result("Session start", False, "Could not create session - check DB tables")
             return False
         
-        db.log_session_start(session_id)
-        db.log_session_in_progress(session_id)
+        db_sessions.log_session_start(db, session_id)
+        db_sessions.log_session_in_progress(db, session_id)
         print(f"  Session ID: {session_id}")
         print()
         
         start_time = time.time()
         
         for i, (stage_name, stage_label) in enumerate(stages):
-            stage_id = db.log_stage_start(session_id, stage_name, i+1, duration_per_stage)
+            stage_id = db_sessions.log_stage_start(db, session_id, stage_name, i+1, duration_per_stage)
             
             # Progress bar simulation
             print(f"  [{i+1}/{len(stages)}] {stage_label}...", end=" ", flush=True)
@@ -439,18 +443,18 @@ def run_simulated_session(db, duration_per_stage=2):
                 time.sleep(1)
             
             if stage_id:
-                db.log_stage_complete(stage_id, duration_per_stage)
+                db_sessions.log_stage_complete(db, stage_id, duration_per_stage)
             
             print(f"\r  [{i+1}/{len(stages)}] {stage_label}: [####################] Complete!")
         
         total_duration = int(time.time() - start_time)
-        db.log_session_complete(session_id, total_duration)
+        db_sessions.log_session_complete(db, session_id, total_duration)
         
         print()
         print_result("Simulated session", True, f"Completed in {total_duration}s")
         
         # Verify final state
-        details = db.get_session_details(session_id)
+        details = db_sessions.get_session_details(db, session_id)
         if details:
             print(f"\n  Final Status: {details['session']['status']}")
             print(f"  Stages Logged: {len(details['stages'])}")

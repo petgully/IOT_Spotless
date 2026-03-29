@@ -1,0 +1,19 @@
+[Unit]
+Description=Project Spotless - Kiosk Web Server
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=spotless
+Group=spotless
+WorkingDirectory=/home/spotless/IOT_Spotless/raspberry_pi
+EnvironmentFile=/home/spotless/IOT_Spotless/raspberry_pi/.env
+ExecStart=/home/spotless/IOT_Spotless/raspberry_pi/venv/bin/python main.py --kiosk
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

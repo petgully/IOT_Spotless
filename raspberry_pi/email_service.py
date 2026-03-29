@@ -466,6 +466,45 @@ class EmailService:
             logger.error(f"Failed to send email: {e}")
             return False
             
+    def send_session_start_email(
+        self,
+        session_type: str,
+        qr_code: str = "",
+        machine_id: str = "",
+        customer_name: str = "",
+        pet_name: str = "",
+    ) -> bool:
+        """
+        Send a notification when a session STARTS (QR scanned, validated, running).
+        """
+        if not self._enabled:
+            return False
+
+        current_time = datetime.now()
+        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
+
+        subject = (
+            f"Spotless_{machine_id}_SessionStarted_"
+            f"{current_time.strftime('%Y%m%d%H%M%S')}"
+        )
+        body = f"""
+Session Started
+===============
+
+Machine ID:    {machine_id}
+Session Type:  {session_type}
+QR Code:       {qr_code}
+Customer:      {customer_name or 'N/A'}
+Pet:           {pet_name or 'N/A'}
+Started At:    {timestamp}
+
+Status: IN PROGRESS
+
+---
+Project Spotless - Automated Notification
+"""
+        return self._send_raw_email(subject, body)
+
     def send_startup_notification(self, machine_id: str) -> bool:
         """Send a system startup notification."""
         if not self._enabled:

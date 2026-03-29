@@ -43,7 +43,7 @@ from config import NODES
 from node_controller import NodeController
 from device_map import DeviceController, print_device_mapping
 from gpio_controller import GPIOController
-from spotless_functions import SpotlessController
+from spotless_controller import SpotlessController
 from config_manager import ConfigManager, get_config_manager
 from logging_config import (
     setup_logging as setup_app_logging,
