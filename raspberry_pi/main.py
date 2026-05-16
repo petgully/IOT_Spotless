@@ -43,6 +43,9 @@ from gpio_controller import GPIOController
 from spotless_controller import StageExecutor
 from config_manager import ConfigManager, get_config_manager
 from session_runner import SessionRunner
+from session_progress import SessionProgressStore, recover_on_boot
+from cloud_sync import CloudSyncQueue
+import db_bookings
 from logging_config import (
     setup_logging as setup_app_logging,
     get_log_file_path,
@@ -80,6 +83,11 @@ class SpotlessApplication:
         # Services
         self.email_service = None
         self.session_logger = None
+
+        # v1.1: per-second anti-fraud + cloud retry
+        self.progress_store = None      # SessionProgressStore (local SQLite)
+        self.cloud_sync = None          # CloudSyncQueue (RDS write retry)
+        self.recovered_session = None   # Set by boot recovery if any
 
         self.running = False
         self._machine_id = None
@@ -167,6 +175,29 @@ class SpotlessApplication:
         except Exception as e:
             self.logger.warning(f"Roof light controller not available: {e}")
 
+        # --- Local SQLite progress store (v1.1 §8.0) ---
+        try:
+            self.progress_store = SessionProgressStore()
+            self.logger.info("Session progress store initialized")
+        except Exception as e:
+            self.logger.error(f"Could not init session progress store: {e}")
+
+        # --- Boot recovery (v1.1 §9.1) ---
+        try:
+            recovered = recover_on_boot()
+            if recovered:
+                self.recovered_session = recovered
+                self.logger.warning(
+                    f"BOOT RECOVERY: pending session booking={recovered.booking_code} "
+                    f"pet={recovered.pet_name!r} stage={recovered.current_stage_name} "
+                    f"completed={len(recovered.completed_stages)}"
+                )
+                self.logger.warning(
+                    "Kiosk will prompt for QR re-scan to confirm resume."
+                )
+        except Exception as e:
+            self.logger.error(f"Boot recovery check failed: {e}")
+
         # --- Wait for nodes ---
         self.logger.info("Waiting for ESP32 nodes to connect...")
         node_status = self.controller.wait_for_nodes(timeout=30)
@@ -183,6 +214,18 @@ class SpotlessApplication:
     def stop(self):
         self.logger.info("Shutting down...")
         self.running = False
+
+        if self.cloud_sync:
+            try:
+                self.cloud_sync.stop(timeout=2.0)
+            except Exception as e:
+                self.logger.warning(f"cloud_sync.stop: {e}")
+
+        if self.progress_store:
+            try:
+                self.progress_store.close()
+            except Exception:
+                pass
 
         if self.geyser_ctrl:
             self.geyser_ctrl.stop()
@@ -217,8 +260,20 @@ class SpotlessApplication:
     # =========================================================================
 
     def run_session(self, session_type: str, qr_code: str = "CLI_TEST"):
-        """Run a session from the CLI (blocking)."""
-        stages = self.config_mgr.get_session_stages(session_type)
+        """Run a service-mode session from the CLI (blocking).
+
+        For real booking sessions, use the kiosk web UI - the CLI path is
+        for operator tests only (TEST, DEMO, DRY, WATER, FLUSH, SHAMP, DIS,
+        EMPTY, SMALL, LARGE -> see session_stages.SESSION_STAGES keys).
+        """
+        from session_stages import get_stages, get_known_session_types
+        stages = get_stages(session_type)
+        if not stages:
+            self.logger.error(
+                f"Unknown session type: {session_type!r}. "
+                f"Known: {get_known_session_types()}"
+            )
+            return False
         self.logger.info(f"Running {session_type}: {len(stages)} stages")
 
         if self.session_logger:
@@ -263,7 +318,26 @@ class SpotlessApplication:
         return success
 
     def create_session_runner(self, db, emit_fn):
-        """Create a SessionRunner wired to this application's components."""
+        """Create a SessionRunner wired to this application's components.
+
+        Also lazily starts the cloud_sync queue (now that we have a DB handle).
+        """
+        # Cloud-sync queue is wired here because the executor callback needs
+        # the live DatabaseManager. The queue persists across sessions.
+        if self.cloud_sync is None:
+            def _executor(op, payload):
+                db_bookings.apply_cloud_op(db, op, payload)
+            try:
+                self.cloud_sync = CloudSyncQueue(
+                    executor=_executor,
+                    retry_seconds=30,
+                    queue_max_warn=100,
+                )
+                self.cloud_sync.start()
+                self.logger.info("Cloud sync queue started")
+            except Exception as e:
+                self.logger.error(f"Could not start cloud_sync: {e}")
+
         self.runner = SessionRunner(
             executor=self.executor,
             config_mgr=self.config_mgr,
@@ -273,6 +347,8 @@ class SpotlessApplication:
             machine_id=self._machine_id or "",
             geyser_controller=self.geyser_ctrl,
             roof_controller=self.roof_ctrl,
+            progress_store=self.progress_store,
+            cloud_sync=self.cloud_sync,
         )
         return self.runner
 
@@ -308,10 +384,14 @@ def parse_arguments():
         description="Project Spotless — Pet Grooming Automation System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Session Types:
-  Bath:     small, large, custdiy, medsmall, medlarge, onlydisinfectant
+Service-Mode Session Types (CLI / operator tests only):
+  Bath:     small, large
   Utility:  quicktest, demo, onlydrying, onlywater, onlyflush,
-            onlyshampoo, empty001
+            onlyshampoo, onlydisinfectant, empty001
+
+For real customer bookings, scan the QR at the kiosk UI - the kiosk
+resolves (size, package, addons) to the correct cycle automatically per
+the v1.1 integration contract.
 
 Examples:
     python main.py --kiosk
@@ -359,15 +439,15 @@ def main():
 
     # --list
     if args.list:
-        machine_id = mgr.get_machine_id(prompt_if_missing=False)
-        if machine_id:
-            mgr.load_config()
+        from session_stages import get_known_session_types
         print("\n" + "=" * 60)
-        print("  Available Session Types")
+        print("  Available Service-Mode Session Types (CLI / test)")
         print("=" * 60)
-        for st in mgr.list_session_types():
-            desc = mgr.get_session_description(st)
-            print(f"    {st:20} {desc}")
+        for st in get_known_session_types():
+            print(f"    {st}")
+        print("=" * 60)
+        print("Real bookings: scan the QR at the kiosk UI - resolution is")
+        print("automatic based on (size, package, addons) per contract v1.1.")
         print("=" * 60 + "\n")
         return 0
 

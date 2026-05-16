@@ -1,16 +1,58 @@
-Phase 0-1: planning + integration contract for SpotlessBooking integration
+Phase 2: kiosk refactor to integration contract v1.1
 
-Captures all design work prior to Phase 2 kiosk refactor:
+Implements docs/INTEGRATION_CONTRACT.md v1.1 end-to-end on the kiosk side.
+The kiosk now resolves bookings to (size, package, addons), tracks every
+second of relay-on time per stage, persists progress locally + to cloud,
+and resumes interrupted sessions after power loss without giving away
+free service.
 
-- docs/HARDWARE_REVIEW_AND_RECOMMENDATIONS.md: V1 hardware analysis + V2 ideas
-- docs/HOW_TO_RUN.md: end-to-end setup guide for Pi + ESP32 nodes
-- docs/FRONTEND_CURRENT_STATE.md: Phase 0 read-only snapshot of SpotlessBooking
-- docs/LIVE_SCHEMA_SNAPSHOT.md: live petgully_db DDL pulled from RDS
-- docs/booking_sessions_live.md: confirms booking_sessions table created in RDS
-- docs/INTEGRATION_CONTRACT.md v1.1: locked agreement (size profiles,
-  per-second anti-fraud accounting, resume protocol, 7-day abandonment)
-- docs/FRONTEND_CHANGE_REQUEST.md: actionable spec to hand SpotlessBooking team
+Modules changed:
+- session_stages.py:  rewritten around build_session(size, package, addons).
+  SET A / SET B size profiles, disinfectant always included, med_bath
+  swaps shampoo pump p1->p3, extra_dry adds +5min or runs standalone.
+  Adds 'accounting' field per stage (relays vs wallclock).
+- config_manager.py:  drops session_types block; introduces size_profiles
+  (A,B) + cloud_sync + resume sub-configs. Migrates old configs forward.
+- spotless_controller.py:  StageExecutor rewritten with per-second
+  accounting, soft (2s) + hard (10s) relay-confirmation timeouts, resume
+  support that skips completed stages and rewinds the current stage to
+  its already-delivered count, and per-stage budget cap (anti-fraud).
+- session_runner.py:  drives fresh + resume flows; wires SessionProgressStore
+  (local SQLite) and CloudSyncQueue (RDS retries) into the executor's
+  callbacks. Cloud writes restricted to the 9 major stages from §8.5.
+- db_bookings.py:  Query A + Query B + booking_sessions writers (§8.1-§8.6)
+  plus apply_cloud_op() dispatcher used by cloud_sync.
+- qr_validator.py:  rewritten as a 7-gate flow (§7.3) returning
+  start | resume | refuse. Booking codes routed through validate_booking_qr;
+  service-mode prefixes (TEST/DEMO/DRY/...) routed through validate_test_prefix.
+- kiosk/web_server.py:  routes use the new validator + machine_id; surfaces
+  recovery_pending banner (§9.1) and cloud-sync degraded flag; builds
+  ResumeState from local SQLite (preferred) or cloud completed_stages CSV.
+- main.py:  initialises SessionProgressStore + CloudSyncQueue, runs the
+  boot-recovery check at startup, propagates recovered_session to the
+  kiosk UI.
 
-Also includes prior in-flight modular refactor work: device_map / gpio_controller
-roof_light_controller / geyser_controller / session_stages / etc. None of the
-prior work matches contract v1.1 yet - that is what Phase 2 does next.
+New modules:
+- session_progress.py:  SQLite store for the data/session_state.db ledger;
+  per-second / per-5s flush APIs, dedup CSV completion, boot recovery.
+- cloud_sync.py:  background async queue with exponential backoff and
+  on-disk persistence at data/cloud_write_queue.json.
+
+Tooling:
+- .gitignore: excludes raspberry_pi/data/ (SQLite + queue JSON) and the
+  scratch .cursor/commit_msg.txt + tmp_*.py files used during dev.
+
+Verification:
+- python -m compileall -q raspberry_pi -> clean
+- session_stages.build_session: all 5 resolution cases (bath/complete/diy/
+  addon_only/trim and indie_special profile-pin) pass
+- session_progress: fresh insert, dedup complete_stage, resume_count, mark
+  completed paths all pass
+- cloud_sync: immediate fail -> queue persistence -> retry-with-backoff
+  drains queue successfully
+- spotless_controller: 24-stage FULL_SESSION runs end-to-end on stub
+  controllers; resume mid-shampoo recovers to exact remaining seconds;
+  anti-fraud confirm-off aborts cleanly after 10s
+- session_runner end-to-end: 24/24 stages locally, exactly 11 cloud ops
+  (1 session_start + 9 major stage_complete + 1 session_complete) -
+  matches contract §8.5 to the op.

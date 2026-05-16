@@ -57,3 +57,11 @@ temp/
 
 # Node.js (if any)
 node_modules/
+
+# Cursor workspace-private scratch (commit messages, temp scripts)
+.cursor/commit_msg.txt
+.cursor/tmp_*.py
+.cursor/tmp_*.json
+
+# Kiosk runtime data (session SQLite, cloud-write queue, session logs)
+raspberry_pi/data/
