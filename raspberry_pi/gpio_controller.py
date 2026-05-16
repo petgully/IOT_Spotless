@@ -8,8 +8,10 @@ These are NOT connected through ESP32 nodes - they are directly wired to
 the Raspberry Pi 5 GPIO header.
 
 Direct GPIO Relays:
-    dry    - GPIO 14 - Dryer Relay
-    geyser - GPIO 18 - Geyser/Heater Relay
+    dry     - GPIO 14 - Dryer Relay
+    geyser  - GPIO 18 - Geyser/Heater Relay
+    roof    - GPIO 15 - Roof Light (tubelight)
+    rglight - GPIO 24 - Red/Green Indicator Light
 
 Usage:
     from gpio_controller import GPIOController
@@ -18,6 +20,8 @@ Usage:
     gpio.dry.on()      # Turn on dryer
     gpio.dry.off()     # Turn off dryer
     gpio.geyser.on()   # Turn on geyser
+    gpio.roof.on()     # Turn on roof tubelight
+    gpio.rglight.on()  # Turn on indicator light
     gpio.all_off()     # Turn off all GPIO relays
 =============================================================================
 """
@@ -44,7 +48,9 @@ GPIO_CHIP = "gpiochip0"  # Raspberry Pi 5 GPIO chip
 # Direct GPIO Relay Pins
 GPIO_PINS = {
     "dry": 14,      # Dryer Relay - GPIO 14
+    "roof": 15,     # Roof Light (tubelight) - GPIO 15
     "geyser": 18,   # Geyser/Heater Relay - GPIO 18
+    "rglight": 24,  # Red/Green Indicator Light - GPIO 24
 }
 
 # Relay active state (HIGH = relay ON for most relay modules)
@@ -197,9 +203,19 @@ class GPIOController:
         return self._relays.get("dry")
     
     @property
+    def roof(self) -> GPIORelay:
+        """Access roof tubelight relay (GPIO 15)."""
+        return self._relays.get("roof")
+
+    @property
     def geyser(self) -> GPIORelay:
         """Access geyser relay (GPIO 18)."""
         return self._relays.get("geyser")
+
+    @property
+    def rglight(self) -> GPIORelay:
+        """Access red/green indicator light relay (GPIO 24)."""
+        return self._relays.get("rglight")
         
     # =========================================================================
     # Control Methods

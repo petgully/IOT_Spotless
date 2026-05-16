@@ -179,9 +179,17 @@ GPIO_RELAYS = {
         "pin": 14,
         "description": "Dryer Relay",
     },
+    "roof": {
+        "pin": 15,
+        "description": "Roof Light (tubelight)",
+    },
     "geyser": {
         "pin": 18,
         "description": "Geyser/Heater Relay",
+    },
+    "rglight": {
+        "pin": 24,
+        "description": "Red/Green Indicator Light",
     },
 }
 

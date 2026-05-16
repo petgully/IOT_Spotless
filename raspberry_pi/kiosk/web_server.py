@@ -6,10 +6,11 @@ Flask + Flask-SocketIO server for the kiosk UI.
 
 This module is thin — it only handles HTTP routes and WebSocket events.
 Business logic lives in:
-    qr_validator.py   - QR code validation
-    session_runner.py  - Background session execution
-    session_stages.py  - Stage definitions
-    db_manager.py      - Database connection
+    qr_validator.py      - QR code validation
+    session_runner.py    - Background session execution
+    config_manager.py    - Configuration + stage definitions
+    spotless_controller.py - StageExecutor (hardware + UI in one loop)
+    db_manager.py        - Database connection
 =============================================================================
 """
 
@@ -21,18 +22,16 @@ from flask_socketio import SocketIO, emit
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from session_stages import get_stages, get_known_session_types
+from session_stages import get_stages, get_known_session_types, get_stage_summary
 from qr_validator import validate_qr_code
 from session_runner import SessionRunner
 
 logger = logging.getLogger(__name__)
 
-# Flask app and SocketIO
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'spotless-kiosk-secret-key'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# Injected at startup by main.py via create_app()
 _spotless_app = None
 _session_runner: SessionRunner = None
 _db = None
@@ -43,11 +42,22 @@ def create_app(spotless_app=None):
     global _spotless_app, _session_runner, _db
     _spotless_app = spotless_app
     _db = _get_database()
-    _session_runner = SessionRunner(
-        spotless_app=spotless_app,
-        db=_db,
-        emit=lambda event, data: socketio.emit(event, data),
-    )
+
+    if spotless_app:
+        _session_runner = spotless_app.create_session_runner(
+            db=_db,
+            emit_fn=lambda event, data: socketio.emit(event, data),
+        )
+    else:
+        from spotless_controller import StageExecutor
+        from config_manager import ConfigManager
+        _session_runner = SessionRunner(
+            executor=None,
+            config_mgr=ConfigManager(),
+            db=_db,
+            emit=lambda event, data: socketio.emit(event, data),
+        )
+
     return app
 
 
@@ -103,7 +113,18 @@ def start_session():
     session_type = session_info['session_type']
     customer_name = session_info.get('customer_name')
     from_db = session_info.get('from_database', False)
-    stages = get_stages(session_type)
+
+    # Build preview from the same config source that the runner will use,
+    # so durations in the kiosk match what actually runs.
+    if _spotless_app and _spotless_app.config_mgr:
+        full_stages = _spotless_app.config_mgr.get_session_stages(session_type)
+        stages = [
+            {"name": s["name"], "label": s["label"],
+             "duration": s["duration"], "image": s.get("image", "")}
+            for s in full_stages if s.get("show_timer", True)
+        ]
+    else:
+        stages = get_stage_summary(session_type)
 
     socketio.emit('scan_success', {
         'qr_code': qr_code,
@@ -116,7 +137,7 @@ def start_session():
     logger.info(f"Starting session: type={session_type}, qr={qr_code}, "
                 f"customer={customer_name}, from_db={from_db}")
 
-    _session_runner.start(session_type, qr_code, stages, session_info)
+    _session_runner.start(session_type, qr_code, session_info)
 
     return jsonify({
         'success': True,
@@ -169,7 +190,6 @@ def handle_scan_input(data):
 # =============================================================================
 
 def _get_database():
-    """Lazily initialise the DatabaseManager."""
     try:
         from db_manager import DatabaseManager, DEFAULT_DB_CONFIG
         db = DatabaseManager(DEFAULT_DB_CONFIG)

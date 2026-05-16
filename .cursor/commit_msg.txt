@@ -1,0 +1,16 @@
+Phase 0-1: planning + integration contract for SpotlessBooking integration
+
+Captures all design work prior to Phase 2 kiosk refactor:
+
+- docs/HARDWARE_REVIEW_AND_RECOMMENDATIONS.md: V1 hardware analysis + V2 ideas
+- docs/HOW_TO_RUN.md: end-to-end setup guide for Pi + ESP32 nodes
+- docs/FRONTEND_CURRENT_STATE.md: Phase 0 read-only snapshot of SpotlessBooking
+- docs/LIVE_SCHEMA_SNAPSHOT.md: live petgully_db DDL pulled from RDS
+- docs/booking_sessions_live.md: confirms booking_sessions table created in RDS
+- docs/INTEGRATION_CONTRACT.md v1.1: locked agreement (size profiles,
+  per-second anti-fraud accounting, resume protocol, 7-day abandonment)
+- docs/FRONTEND_CHANGE_REQUEST.md: actionable spec to hand SpotlessBooking team
+
+Also includes prior in-flight modular refactor work: device_map / gpio_controller
+roof_light_controller / geyser_controller / session_stages / etc. None of the
+prior work matches contract v1.1 yet - that is what Phase 2 does next.

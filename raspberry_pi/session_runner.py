@@ -2,41 +2,38 @@
 =============================================================================
 Session Runner - Project Spotless
 =============================================================================
-Runs a bath session in a background thread, emitting progress events via
-a callback interface so the caller (web_server, CLI, tests) can choose
-how to surface them.
+Orchestrates a session lifecycle: DB logging, email, and calls
+StageExecutor.run_session() which handles hardware + UI in one loop.
+
+There is NO separate hardware thread — the StageExecutor countdown loop
+IS both the relay timer and the UI timer.  This eliminates the old
+dual-timeline drift problem.
 
 This module owns:
-    - Starting the hardware session thread
-    - Ticking through UI stages and emitting progress every second
-    - Logging session/stage lifecycle to the database
-    - Sending the completion email
-    - Handling stop / error states
+    - Starting the session in a daemon thread
+    - DB logging (session + stage lifecycle)
+    - Email notifications (start + completion)
+    - Stop / error handling
+    - Geyser / roof-light lifecycle hooks
 
 It does NOT import Flask or SocketIO.
 =============================================================================
 """
 
-import time
 import logging
 import threading
 import traceback
 from datetime import datetime
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 import db_sessions
 from db_bookings import update_booking_status
 
 logger = logging.getLogger(__name__)
 
-
-# Type alias for the event callback.
-# Signature:  callback(event_name: str, data: dict) -> None
 EventCallback = Callable[[str, Dict], None]
 
-
-def _noop_callback(event_name: str, data: dict):
-    """Default no-op callback when no UI is attached."""
+def _noop(event_name: str, data: dict):
     pass
 
 
@@ -45,22 +42,34 @@ class SessionRunner:
     Orchestrates one session from QR-scan to completion.
 
     Usage:
-        runner = SessionRunner(spotless_app, db, emit_fn)
-        runner.start(session_type, qr_code, stages, session_info)
-        runner.stop()   # emergency stop
+        runner = SessionRunner(executor, config_mgr, db, emit)
+        runner.start("small", "QR123", session_info)
+        runner.stop()
     """
 
-    def __init__(self, spotless_app, db=None,
-                 emit: EventCallback = None):
+    def __init__(self, executor, config_mgr,
+                 db=None, emit: EventCallback = None,
+                 email_service=None, machine_id: str = "",
+                 geyser_controller=None, roof_controller=None):
         """
         Args:
-            spotless_app: SpotlessApplication instance (runs hardware).
-            db:           DatabaseManager instance (or None for offline).
-            emit:         Callback(event_name, data) for UI updates.
+            executor:     StageExecutor instance
+            config_mgr:   ConfigManager instance
+            db:           DatabaseManager (or None for offline)
+            emit:         Callback(event_name, data) for UI updates
+            email_service: EmailService (or None)
+            machine_id:   Machine ID string
+            geyser_controller:  GeyserController (or None)
+            roof_controller:    RoofLightController (or None)
         """
-        self.app = spotless_app
+        self.executor = executor
+        self.config_mgr = config_mgr
         self.db = db
-        self.emit = emit or _noop_callback
+        self.emit = emit or _noop
+        self.email_service = email_service
+        self.machine_id = machine_id
+        self.geyser = geyser_controller
+        self.roof = roof_controller
 
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -75,22 +84,23 @@ class SessionRunner:
     # -----------------------------------------------------------------
 
     def start(self, session_type: str, qr_code: str,
-              stages: list, session_info: Dict):
+              session_info: Dict):
         """Launch the session in a daemon thread."""
         if self._running:
             logger.warning("Session already running — ignoring start()")
             return
 
+        stages = self.config_mgr.get_session_stages(session_type)
+
         self.current_session = {
-            'qr_code': qr_code,
-            'session_type': session_type,
-            'customer_name': session_info.get('customer_name'),
-            'from_database': session_info.get('from_database', False),
-            'params': session_info.get('params'),
-            'stages': stages,
-            'current_stage': 0,
-            'stage_progress': 0,
-            'started_at': datetime.now().isoformat(),
+            "qr_code": qr_code,
+            "session_type": session_type,
+            "customer_name": session_info.get("customer_name"),
+            "from_database": session_info.get("from_database", False),
+            "stages": stages,
+            "current_stage": 0,
+            "stage_progress": 0,
+            "started_at": datetime.now().isoformat(),
         }
         self._running = True
 
@@ -105,184 +115,160 @@ class SessionRunner:
         """Emergency-stop the running session."""
         self._running = False
         self.current_session = None
-        if self.app:
-            self.app.all_off()
-        self.emit('session_stopped', {'message': 'Session stopped by user'})
+        if self.executor:
+            self.executor.stop()
+        self.emit("session_stopped", {"message": "Session stopped by user"})
 
     # -----------------------------------------------------------------
-    # Internal
+    # Internal — Main Session Thread
     # -----------------------------------------------------------------
 
     def _run(self, session_type: str, qr_code: str,
-             stages: list, session_info: Dict):
-        """Main loop — runs in its own thread."""
+             stages: List[Dict], session_info: Dict):
         db = self.db
         db_session_id = None
-        machine_id = self.app.machine_id if self.app else 'UNKNOWN'
-        params = session_info.get('params')
-        mobile = session_info.get('mobile_number', qr_code)
+        mobile = session_info.get("mobile_number", qr_code)
+        params = session_info.get("params")
         start_time = datetime.now()
 
         try:
-            if not self.app:
-                self.emit('session_error', {
-                    'message': 'System not initialized. Please restart.'
+            if not self.executor:
+                self.emit("session_error", {
+                    "message": "System not initialized. Please restart.",
                 })
                 return
 
-            # -- DB: session activated / started / in_progress --
+            # --- Roof light ON ---
+            if self.roof:
+                self.roof.on_session_start()
+
+            # --- DB: session lifecycle ---
             if db:
                 db_session_id = db_sessions.log_session_activated(
-                    db, mobile, machine_id, session_type, qr_code, params)
+                    db, mobile, self.machine_id, session_type, qr_code, params)
                 if db_session_id:
                     db_sessions.log_session_start(db, db_session_id)
                     db_sessions.log_session_in_progress(db, db_session_id)
 
-            # -- Email: session started notification --
+            # --- Email: session started ---
             self._send_start_email(
-                session_type, machine_id, qr_code,
-                session_info.get('customer_name', ''),
-                session_info.get('pet_name', ''),
+                session_type, qr_code,
+                session_info.get("customer_name", ""),
+                session_info.get("pet_name", ""),
             )
 
-            # -- Hardware thread --
-            hw_thread = threading.Thread(
-                target=self._run_hardware,
-                args=(session_type, qr_code),
-                daemon=True,
-            )
-            hw_thread.start()
+            # --- Build emit wrapper that also logs to DB per-stage ---
+            stage_db_ids = {}
+            stage_starts = {}
+            stage_order = [0]
 
-            # -- Stage progress loop --
-            total_stages = len(stages)
-            stage_order = 0
+            def emit_wrapper(event_name: str, data: dict):
+                idx = data.get("stage_index", -1)
+                name = data.get("stage_name", "")
 
-            for i, stage in enumerate(stages):
-                if not self._running:
+                if event_name == "stage_start":
+                    stage_order[0] += 1
+                    if self.current_session:
+                        self.current_session["current_stage"] = idx
+                        self.current_session["stage_progress"] = 0
+                    stage_starts[idx] = datetime.now()
                     if db and db_session_id:
-                        dur = int((datetime.now() - start_time).total_seconds())
-                        db_sessions.log_session_stopped(db, db_session_id, dur)
-                    return
+                        sid = db_sessions.log_stage_start(
+                            db, db_session_id, name, stage_order[0],
+                            data.get("stage_duration", 0))
+                        if sid:
+                            stage_db_ids[idx] = sid
 
-                stage_name = stage['name']
-                stage_label = stage['label']
-                stage_duration = stage['duration']
-                stage_image = stage['image']
-                stage_order += 1
+                elif event_name == "stage_progress":
+                    if self.current_session:
+                        self.current_session["stage_progress"] = data.get("progress", 0)
 
-                self.current_session['current_stage'] = i
-                self.current_session['stage_progress'] = 0
+                elif event_name == "stage_complete":
+                    if db and idx in stage_db_ids:
+                        started = stage_starts.get(idx)
+                        actual = int((datetime.now() - started).total_seconds()) if started else 0
+                        db_sessions.log_stage_complete(db, stage_db_ids[idx], actual)
 
-                db_stage_id = None
-                if db and db_session_id:
-                    db_stage_id = db_sessions.log_stage_start(
-                        db, db_session_id, stage_name, stage_order, stage_duration)
+                self.emit(event_name, data)
 
-                stage_start = datetime.now()
+            # --- Run all stages (single thread: relays + UI) ---
+            success = self.executor.run_session(stages, emit=emit_wrapper)
 
-                self.emit('stage_start', {
-                    'stage_index': i,
-                    'stage_name': stage_name,
-                    'stage_label': stage_label,
-                    'stage_duration': stage_duration,
-                    'stage_image': stage_image,
-                    'total_stages': total_stages,
-                })
-
-                for second in range(stage_duration):
-                    if not self._running:
-                        if db and db_stage_id:
-                            db_sessions.log_stage_error(
-                                db, db_stage_id, "Session stopped by user")
-                        return
-
-                    progress = int((second + 1) / stage_duration * 100)
-                    remaining = stage_duration - second - 1
-                    self.current_session['stage_progress'] = progress
-
-                    self.emit('stage_progress', {
-                        'stage_index': i,
-                        'stage_name': stage_name,
-                        'progress': progress,
-                        'elapsed': second + 1,
-                        'remaining': remaining,
-                        'total_duration': stage_duration,
-                    })
-                    time.sleep(1)
-
-                if db and db_stage_id:
-                    actual = int((datetime.now() - stage_start).total_seconds())
-                    db_sessions.log_stage_complete(db, db_stage_id, actual)
-
-                self.emit('stage_complete', {
-                    'stage_index': i,
-                    'stage_name': stage_name,
-                })
-
-            # -- Completed --
             total_duration = int((datetime.now() - start_time).total_seconds())
 
+            if not success and not self._running:
+                if db and db_session_id:
+                    db_sessions.log_session_stopped(db, db_session_id, total_duration)
+                return
+
+            # --- Session complete ---
             if db and db_session_id:
                 db_sessions.log_session_complete(db, db_session_id, total_duration)
 
-            booking_code = session_info.get('booking_code')
+            booking_code = session_info.get("booking_code")
             if db and booking_code:
-                update_booking_status(db, booking_code, 'completed')
+                update_booking_status(db, booking_code, "completed")
 
-            self.emit('session_complete', {
-                'qr_code': qr_code,
-                'session_type': session_type,
-                'duration': total_duration,
-                'message': 'Thank you for using Petgully Spotless!',
+            self.emit("session_complete", {
+                "qr_code": qr_code,
+                "session_type": session_type,
+                "duration": total_duration,
+                "message": "Thank you for using Petgully Spotless!",
             })
 
-            self._send_email(session_type, machine_id, qr_code, total_duration)
+            self._send_complete_email(session_type, qr_code, total_duration)
+
+            # --- Geyser re-heat after session ---
+            if self.geyser:
+                self.geyser.on_session_complete()
+
+            # --- Offline session log ---
+            self.config_mgr.log_session(
+                session_type=session_type,
+                qr_code=qr_code,
+                start_time=start_time,
+                end_time=datetime.now(),
+                status="completed",
+            )
 
         except Exception as e:
             logger.error(f"Session error: {e}\n{traceback.format_exc()}")
             if db and db_session_id:
                 db_sessions.log_session_error(db, db_session_id, str(e))
-            self.emit('session_error', {
-                'error': str(e),
-                'message': 'An error occurred. Please contact management.',
+            self.emit("session_error", {
+                "error": str(e),
+                "message": "An error occurred. Please contact management.",
             })
         finally:
             self._running = False
             self.current_session = None
+            if self.roof:
+                self.roof.on_session_complete()
 
-    def _run_hardware(self, session_type: str, qr_code: str):
-        """Runs the actual relay-control session in its own thread."""
-        try:
-            logger.info(f"Hardware session starting: {session_type} / {qr_code}")
-            result = self.app.run_session(session_type, qr_code)
-            logger.info(f"Hardware session finished: {session_type}, result={result}")
-        except Exception as e:
-            logger.error(f"Hardware session FAILED: {e}\n{traceback.format_exc()}")
+    # -----------------------------------------------------------------
+    # Email Helpers
+    # -----------------------------------------------------------------
 
-    def _send_start_email(self, session_type, machine_id, qr_code,
-                          customer_name='', pet_name=''):
-        """Send a 'session started' email if the service is available."""
+    def _send_start_email(self, session_type, qr_code,
+                          customer_name="", pet_name=""):
         try:
-            if (self.app and hasattr(self.app, 'email_service')
-                    and self.app.email_service
-                    and hasattr(self.app.email_service, 'send_session_start_email')):
-                self.app.email_service.send_session_start_email(
+            if self.email_service and hasattr(self.email_service, "send_session_start_email"):
+                self.email_service.send_session_start_email(
                     session_type=session_type,
                     qr_code=qr_code,
-                    machine_id=machine_id,
+                    machine_id=self.machine_id,
                     customer_name=customer_name,
                     pet_name=pet_name,
                 )
         except Exception as e:
             logger.warning(f"Session-start email failed: {e}")
 
-    def _send_email(self, session_type, machine_id, qr_code, duration):
-        """Send completion email if the service is available."""
+    def _send_complete_email(self, session_type, qr_code, duration):
         try:
-            if self.app and hasattr(self.app, 'email_service') and self.app.email_service:
-                self.app.email_service.send_session_email(
+            if self.email_service:
+                self.email_service.send_session_email(
                     session_type=session_type,
-                    machine_id=machine_id,
+                    machine_id=self.machine_id,
                     qr_code=qr_code,
                     duration=duration,
                 )
