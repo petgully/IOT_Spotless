@@ -6,11 +6,20 @@ Single source of truth for session stages. Implements the target spec in
 docs/INTEGRATION_CONTRACT.md v1.1 sections 5, 6, 10.
 
 There are TWO size profiles (SET A, SET B) and TWO machine modes
-(FULL_SESSION, DRYER_ONLY). Add-ons modify the resulting stage list:
+(FULL_SESSION, DRYER_ONLY). Packages route as follows:
 
-  - `med_bath`   swaps the **shampoo** stage pump from p1 -> p3.
-  - `extra_dry`  if package == 'addon_only' -> picks DRYER_ONLY mode (10 min).
-                 Otherwise -> adds +300s to the dryer total in FULL_SESSION.
+  Packages -> mode
+    bath_pkg / complete_pkg / diy_bath / indie_special -> FULL_SESSION
+    just_dry                                           -> DRYER_ONLY (~5 min, NEW v1.1.1)
+    addon_only + extra_dry                             -> DRYER_ONLY (legacy, kept for back-compat)
+    trim_pkg                                           -> REFUSED (staff-only)
+    addon_only without extra_dry                       -> REFUSED
+
+  Add-on modifiers (only valid on FULL_SESSION packages):
+    `med_bath`   swaps the **shampoo** stage pump from p1 -> p3.
+    `extra_dry`  adds +300s to the dryer total in FULL_SESSION.
+                 (Server-side guarantees `extra_dry` never appears on
+                  just_dry per mg_addons.applicable_packages.)
 
 Disinfectant is **always** part of FULL_SESSION (no `pr=10/20` flag any more).
 
@@ -382,6 +391,14 @@ def _dryer_only_stages(dryer_total: int = 600) -> List[Dict]:
 # Add-on codes the machine recognises (contract section 4.3)
 MACHINE_ADDONS = {"med_bath", "extra_dry"}
 
+# Standalone dryer-only product (frontend handover §3.5):
+# "Just Dry — Dryer stage only. ~5 min default."
+JUST_DRY_DURATION_SECONDS = 300
+
+# Standalone DRYER_ONLY duration for the legacy addon_only + extra_dry combo.
+# Kept at 10 min to match the v1.0 contract; not exposed in the new UI.
+ADDON_ONLY_DURATION_SECONDS = 600
+
 
 def _normalize_addons(addons) -> List[str]:
     """Accept None, '', 'a,b', or list -> normalized list of lowercase codes."""
@@ -411,7 +428,8 @@ def build_session(size: Optional[str],
         size:    pets.size value ('small', 'medium', 'medium_large', 'large',
                  'xl', 'indie', or empty/None).
         package: bookings.session_type value ('bath_pkg', 'complete_pkg',
-                 'diy_bath', 'indie_special', 'addon_only', 'trim_pkg').
+                 'diy_bath', 'indie_special', 'just_dry', 'addon_only',
+                 'trim_pkg').
         addons:  CSV string or list of mg_addons.addon_code values.
         profile_overrides: optional dict { 'A': {...}, 'B': {...} } merged on
                  top of DEFAULT_PROFILES per-key. Use to load values from
@@ -443,6 +461,31 @@ def build_session(size: Optional[str],
             addons_list, non_machine_addons,
         )
 
+    # ---- just_dry: standalone dryer-only product (v1.1.1) ----
+    if pkg == "just_dry":
+        # Per frontend handover §3.5: dryer stage only, ~5 min default.
+        # Server-side enforces that `extra_dry` cannot accompany just_dry
+        # (mg_addons.applicable_packages excludes it). Defensive: even if a
+        # stale row slipped through, we ignore extra_dry here.
+        profile_key = size_to_profile(size)
+        stages = _dryer_only_stages(JUST_DRY_DURATION_SECONDS)
+        return {
+            "mode": "DRYER_ONLY",
+            "profile": profile_key,
+            "shampoo_pump": None,
+            "dryer_extra_seconds": 0,
+            "stages": stages,
+            "addons_raw": addons_list,
+            "non_machine_addons": non_machine_addons,
+            "refused": False,
+            "refuse_code": None,
+            "refuse_message": None,
+        }
+
+    # ---- addon_only: legacy DRYER_ONLY trigger (back-compat) ----
+    # Today's frontend doesn't issue addon_only bookings anymore (they use
+    # just_dry instead). Kept here so any historical addon_only + extra_dry
+    # bookings still in flight can complete.
     if pkg == "addon_only":
         if "extra_dry" not in machine_addons:
             return _refuse(
@@ -450,10 +493,8 @@ def build_session(size: Optional[str],
                 "This booking has no machine service - please see staff.",
                 addons_list, non_machine_addons,
             )
-        # Standalone extra-dry
-        profile_key = "A" if size_to_profile(size) == "A" else "B"
-        # Both profiles use the same 600s dryer for standalone (contract 6.3)
-        stages = _dryer_only_stages(600)
+        profile_key = size_to_profile(size)
+        stages = _dryer_only_stages(ADDON_ONLY_DURATION_SECONDS)
         return {
             "mode": "DRYER_ONLY",
             "profile": profile_key,
