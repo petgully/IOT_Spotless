@@ -239,14 +239,31 @@ install_apt_packages() {
     log "Running apt-get update..."
     apt-get update -qq
 
+    # Chromium package name changed across Raspberry Pi OS releases:
+    #   Buster / Bullseye:  chromium-browser
+    #   Bookworm and later: chromium
+    # Pick whichever apt actually has a candidate for, so this works on both.
+    local chrome_pkg=""
+    if apt-cache show chromium >/dev/null 2>&1; then
+        chrome_pkg="chromium"
+    elif apt-cache show chromium-browser >/dev/null 2>&1; then
+        chrome_pkg="chromium-browser"
+    else
+        warn "Neither 'chromium' nor 'chromium-browser' is available in apt."
+        warn "Kiosk fullscreen mode will not work until you install a browser manually."
+    fi
+
     local pkgs=(
         git curl ca-certificates
         mosquitto mosquitto-clients
         python3 python3-pip python3-venv python3-libgpiod
-        chromium-browser unclutter
+        unclutter
         logrotate cron
         network-manager
     )
+    if [[ -n "$chrome_pkg" ]]; then
+        pkgs+=("$chrome_pkg")
+    fi
     log "Installing: ${pkgs[*]}"
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}" >/dev/null
     ok "All apt packages installed"
