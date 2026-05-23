@@ -17,6 +17,16 @@ let stages = [];
 let currentStageIndex = 0;
 let timerInterval = null;
 
+// Safety-net state: ensures the kiosk never gets permanently stuck if a
+// WebSocket event is missed (e.g. the Pi rebooted mid-session, the socket
+// reconnected to a fresh server, and the session_complete emit landed in
+// a void). We poll /api/status periodically and force a redirect when the
+// backend reports the session is no longer active.
+let sessionHasStarted = false;       // flips true on the first stage_start
+let redirectAlreadyArmed = false;    // prevents double-redirects
+let serverIdleStreak = 0;            // consecutive polls reporting idle
+let safetyPollInterval = null;
+
 // =============================================================================
 // DOM Elements
 // =============================================================================
@@ -119,17 +129,86 @@ function initializeSocket() {
         console.log('Session stopped:', data);
         handleSessionStopped(data);
     });
-    
+
+    // Backend emits this when a session ends with result.ok == False (e.g.
+    // executor abort, exception, or stop mid-flight). Without this handler
+    // the kiosk would sit on the last stage forever.
+    socket.on('session_aborted', (data) => {
+        console.log('Session aborted:', data);
+        handleSessionAborted(data);
+    });
+
     socket.on('session_error', (data) => {
         console.log('Session error:', data);
         handleSessionError(data);
     });
+
+    // Start the server-status safety net. It only redirects after the
+    // session has actually started AND the server reports idle for two
+    // consecutive polls, so it never fires prematurely.
+    startSafetyPoll();
+}
+
+// =============================================================================
+// Safety net: poll /api/status so a missed WebSocket event can't strand us
+// =============================================================================
+function startSafetyPoll() {
+    if (safetyPollInterval) return;
+    // 5 second cadence: 2 idle reads in a row = ~10 seconds before redirect.
+    safetyPollInterval = setInterval(checkServerStatus, 5000);
+}
+
+function stopSafetyPoll() {
+    if (safetyPollInterval) {
+        clearInterval(safetyPollInterval);
+        safetyPollInterval = null;
+    }
+}
+
+async function checkServerStatus() {
+    if (redirectAlreadyArmed) return;
+    try {
+        const res = await fetch('/api/status', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.session_active) {
+            // Don't redirect during the initial scan→first-stage window;
+            // the session might just not have started yet.
+            if (!sessionHasStarted) return;
+            serverIdleStreak += 1;
+            console.log(`Safety poll: server idle (streak ${serverIdleStreak})`);
+            if (serverIdleStreak >= 2) {
+                console.warn('Safety net redirecting: server reports idle.');
+                armRedirectHome('We hit a small hiccup — returning to home.', 4);
+            }
+        } else {
+            serverIdleStreak = 0;
+        }
+    } catch (e) {
+        // Network blip — don't redirect on a single failed poll.
+        console.log('Safety poll fetch failed (will retry):', e);
+    }
+}
+
+function armRedirectHome(message, seconds) {
+    if (redirectAlreadyArmed) return;
+    redirectAlreadyArmed = true;
+    stopSafetyPoll();
+    if (message) {
+        // Surface a friendly notice. The error modal element is the cleanest
+        // visual we already have; reusing it keeps the bundle small.
+        try { showError(message); } catch (_) {}
+    }
+    setTimeout(() => { window.location.href = '/'; },
+               Math.max(0, (seconds || 0) * 1000));
 }
 
 // =============================================================================
 // Stage Handlers
 // =============================================================================
 function handleStageStart(data) {
+    sessionHasStarted = true;
+    serverIdleStreak = 0;
     currentStageIndex = data.stage_index;
     
     // Update stage label
@@ -184,17 +263,21 @@ function handleStageComplete(data) {
 }
 
 function handleSessionComplete(data) {
+    if (redirectAlreadyArmed) return;
+    redirectAlreadyArmed = true;
+    stopSafetyPoll();
+
     // Show completion modal
     elements.completionModal.classList.remove('hidden');
-    
+
     // Countdown to redirect
     let countdown = 10;
     elements.returnCountdown.textContent = countdown;
-    
+
     const countdownInterval = setInterval(() => {
         countdown--;
         elements.returnCountdown.textContent = countdown;
-        
+
         if (countdown <= 0) {
             clearInterval(countdownInterval);
             window.location.href = '/';
@@ -203,14 +286,24 @@ function handleSessionComplete(data) {
 }
 
 function handleSessionStopped(data) {
-    showError('Session was stopped. Returning to home...');
-    setTimeout(() => {
-        window.location.href = '/';
-    }, 3000);
+    armRedirectHome('Session was stopped. Returning to home...', 3);
+}
+
+function handleSessionAborted(data) {
+    // Treated like session_stopped from the customer's perspective — the
+    // session ended without completing, kiosk needs to go back home. The
+    // backend already turned all relays off before emitting.
+    const why = (data && data.reason) ? `Session ended (${data.reason}).`
+                                      : 'Session ended. Returning to home...';
+    armRedirectHome(why, 3);
 }
 
 function handleSessionError(data) {
     showError(data.message || 'An error occurred during the session.');
+    // Don't auto-redirect here: the user explicitly clicks OK on the error
+    // modal (existing behaviour). But disable the safety-net poll so it
+    // doesn't fight the modal.
+    stopSafetyPoll();
 }
 
 // =============================================================================
