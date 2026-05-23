@@ -5,47 +5,48 @@ Device Mapping - Project Spotless
 Maps friendly variable names to ESP32 node + relay combinations.
 
 This module provides easy-to-use variable names that correspond to specific
-relays on specific ESP32 nodes, matching the legacy code naming convention.
+relays on specific ESP32 nodes, matching the physical hardware layout.
 
 Usage:
     from device_map import devices, DeviceController
     
     # Get device info
-    devices.p1  # Returns ("spotless_node1", 7) - Node 1, BACK2
+    devices.p1  # Returns DeviceInfo for Node 1, Relay 7 (BACK2)
     
     # With DeviceController
     dc = DeviceController(node_controller)
-    dc.p1.on()   # Turn on p1 (Node 1, BACK2)
-    dc.p1.off()  # Turn off p1
-    dc.ro1.on()  # Turn on ro1 (Node 1, RS1&DS2)
+    dc.p1.on()       # Turn on peristaltic pump 1 (shampoo)
+    dc.pump.on()     # Turn on booster pump (220V)
+    dc.top.on()      # Turn on flush top nozzle
+    dc.flushmain.on() # Turn on autoflush gate (220V)
 
 Node/Relay Mapping:
-    NODE 1 (spotless_node1):
-        p1   → BACK2    (Relay 7)
-        p2   → BACK1    (Relay 6)
-        ro1  → RS1&DS2  (Relay 4)
-        ro2  → RS2&DS1  (Relay 5)
-        d1   → FP1      (Relay 3)
-        p3   → P1&P2    (Relay 2)
-        pump → S1       (Relay 1)
+    NODE 1 (spotless_node1) — Container 1 system:
+        p1   → BACK2    (Relay 7) - Peristaltic Pump 1 (Shampoo)
+        p2   → BACK1    (Relay 6) - Peristaltic Pump 2 (Conditioner)
+        ro1  → RS2&DS1  (Relay 5) - RO Solenoid 1 (Fill Container 1)
+        ro2  → RS1&DS2  (Relay 4) - RO Solenoid 2 (Drain Container 1)
+        d1   → FP1      (Relay 3) - Diaphragm Pump 1 (Push from Container 1)
+        p3   → P1&P2    (Relay 2) - Peristaltic Pump 3 (Med Shampoo)
+        pump → S1       (Relay 1) - Booster Pump 220V
 
-    NODE 2 (spotless_node2):
-        p4   → BACK2    (Relay 7)
-        p5   → BACK1    (Relay 6)
-        ro3  → RS1&DS2  (Relay 4)
-        ro4  → RS2&DS1  (Relay 5)
-        d2   → FP1      (Relay 3)
-        s7   → P1&P2    (Relay 2)
-        s9   → S1       (Relay 1)
+    NODE 2 (spotless_node2) — Container 2 system + Autoflush:
+        p4       → BACK2    (Relay 7) - Peristaltic Pump 4 (Disinfectant)
+        p5       → BACK1    (Relay 6) - Peristaltic Pump 5 (Backup)
+        ro3      → RS2&DS1  (Relay 5) - RO Solenoid 3 (Fill Container 2)
+        ro4      → RS1&DS2  (Relay 4) - RO Solenoid 4 (Drain Container 2)
+        d2       → FP1      (Relay 3) - Diaphragm Pump 2 (Push from Container 2)
+        top      → P1&P2    (Relay 2) - Flush Top Nozzle
+        flushmain→ S1       (Relay 1) - Autoflush Gate 220V
 
-    NODE 3 (spotless_node3):
-        s1   → BACK2    (Relay 7)
-        s2   → BACK1    (Relay 6)
-        s3   → RS1&DS2  (Relay 4)
-        s4   → RS2&DS1  (Relay 5)
-        s5   → FP1      (Relay 3)
-        s6   → P1&P2    (Relay 2)
-        s8   → S1       (Relay 1)
+    NODE 3 (spotless_node3) — Bath line solenoid valves:
+        s1     → BACK2    (Relay 7) - Solenoid 1 (Shampoo line gate)
+        s2     → BACK1    (Relay 6) - Solenoid 2 (Common spray / anti-backflow)
+        s3     → RS2&DS1  (Relay 5) - Solenoid 3 (Disinfectant line gate)
+        s4     → RS1&DS2  (Relay 4) - Solenoid 4 (Common valve / anti-backflow)
+        s5     → FP1      (Relay 3) - Solenoid 5 (Water line)
+        bottom → P1&P2    (Relay 2) - Flush Bottom Nozzle
+        s8     → S1       (Relay 1) - Main Gate 220V (bath lines)
 =============================================================================
 """
 
@@ -56,7 +57,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# Relay Number Constants
+# Relay Number Constants (identical PCB layout on all 3 nodes)
 # =============================================================================
 RELAY_S1_220V = 1      # S1 (220V Solenoid)
 RELAY_P1_P2 = 2        # P1&P2 (Pumps)
@@ -80,10 +81,10 @@ NODE_3 = "spotless_node3"
 @dataclass
 class DeviceInfo:
     """Information about a device (relay on a specific node)."""
-    name: str           # Variable name (e.g., "p1", "ro1")
+    name: str           # Variable name (e.g., "p1", "ro1", "top")
     node_id: str        # ESP32 node ID
     relay_num: int      # Relay number (1-7)
-    relay_label: str    # Relay label (e.g., "BACK2", "RS1_DS2")
+    relay_label: str    # PCB relay label (e.g., "BACK2", "RS1_DS2")
     description: str    # Human-readable description
     
     def __repr__(self):
@@ -95,84 +96,90 @@ class DeviceInfo:
 
 
 class DeviceMap:
-    """
-    Maps friendly variable names to node+relay combinations.
-    """
+    """Maps friendly variable names to node+relay combinations."""
     
     def __init__(self):
         self._devices = {}
         self._setup_mappings()
         
     def _setup_mappings(self):
-        """Setup all device mappings."""
-        
         # =====================================================================
-        # NODE 1 Devices (spotless_node1)
+        # NODE 1 — Container 1 system (spotless_node1)
         # =====================================================================
-        self._add_device("p1", NODE_1, RELAY_BACK2, "BACK2", 
-                        "Peristaltic Pump 1 (Node 1 BACK2)")
-        self._add_device("p2", NODE_1, RELAY_BACK1, "BACK1", 
-                        "Peristaltic Pump 2 (Node 1 BACK1)")
-        self._add_device("ro1", NODE_1, RELAY_RS1_DS2, "RS1_DS2", 
-                        "RO Solenoid 1 (Node 1 RS1&DS2)")
-        self._add_device("ro2", NODE_1, RELAY_RS2_DS1, "RS2_DS1", 
-                        "RO Solenoid 2 (Node 1 RS2&DS1)")
-        self._add_device("d1", NODE_1, RELAY_FP1, "FP1", 
-                        "Diaphragm Pump 1 (Node 1 FP1)")
-        self._add_device("p3", NODE_1, RELAY_P1_P2, "P1_P2", 
-                        "Pumps P1&P2 (Node 1)")
-        self._add_device("pump", NODE_1, RELAY_S1_220V, "S1_220V", 
-                        "Main Pump 220V (Node 1 S1)")
-        
+        self._add("p1", NODE_1, RELAY_BACK2, "BACK2",
+                  "Peristaltic Pump 1 — Shampoo")
+        self._add("p2", NODE_1, RELAY_BACK1, "BACK1",
+                  "Peristaltic Pump 2 — Conditioner")
+        self._add("ro1", NODE_1, RELAY_RS2_DS1, "RS2_DS1",
+                  "RO Solenoid 1 — Fill Container 1")
+        self._add("ro2", NODE_1, RELAY_RS1_DS2, "RS1_DS2",
+                  "RO Solenoid 2 — Drain Container 1")
+        self._add("d1", NODE_1, RELAY_FP1, "FP1",
+                  "Diaphragm Pump 1 — Push from Container 1")
+        self._add("p3", NODE_1, RELAY_P1_P2, "P1_P2",
+                  "Peristaltic Pump 3 — Med Shampoo")
+        self._add("pump", NODE_1, RELAY_S1_220V, "S1_220V",
+                  "Booster Pump 220V")
+
         # =====================================================================
-        # NODE 2 Devices (spotless_node2)
+        # NODE 2 — Container 2 system + Autoflush (spotless_node2)
         # =====================================================================
-        self._add_device("p4", NODE_2, RELAY_BACK2, "BACK2", 
-                        "Peristaltic Pump 4 (Node 2 BACK2)")
-        self._add_device("p5", NODE_2, RELAY_BACK1, "BACK1", 
-                        "Peristaltic Pump 5 (Node 2 BACK1)")
-        self._add_device("ro3", NODE_2, RELAY_RS1_DS2, "RS1_DS2", 
-                        "RO Solenoid 3 (Node 2 RS1&DS2)")
-        self._add_device("ro4", NODE_2, RELAY_RS2_DS1, "RS2_DS1", 
-                        "RO Solenoid 4 (Node 2 RS2&DS1)")
-        self._add_device("d2", NODE_2, RELAY_FP1, "FP1", 
-                        "Diaphragm Pump 2 (Node 2 FP1)")
-        self._add_device("s7", NODE_2, RELAY_P1_P2, "P1_P2", 
-                        "Solenoid 7 / P1&P2 (Node 2)")
-        self._add_device("s9", NODE_2, RELAY_S1_220V, "S1_220V", 
-                        "Solenoid 9 / 220V (Node 2 S1)")
-        
+        self._add("p4", NODE_2, RELAY_BACK2, "BACK2",
+                  "Peristaltic Pump 4 — Disinfectant")
+        self._add("p5", NODE_2, RELAY_BACK1, "BACK1",
+                  "Peristaltic Pump 5 — Backup")
+        self._add("ro3", NODE_2, RELAY_RS2_DS1, "RS2_DS1",
+                  "RO Solenoid 3 — Fill Container 2")
+        self._add("ro4", NODE_2, RELAY_RS1_DS2, "RS1_DS2",
+                  "RO Solenoid 4 — Drain Container 2")
+        self._add("d2", NODE_2, RELAY_FP1, "FP1",
+                  "Diaphragm Pump 2 — Push from Container 2")
+        self._add("top", NODE_2, RELAY_P1_P2, "P1_P2",
+                  "Flush Top Nozzle")
+        self._add("flushmain", NODE_2, RELAY_S1_220V, "S1_220V",
+                  "Autoflush Gate 220V")
+
         # =====================================================================
-        # NODE 3 Devices (spotless_node3)
+        # NODE 3 — Bath line solenoid valves (spotless_node3)
         # =====================================================================
-        self._add_device("s1", NODE_3, RELAY_BACK2, "BACK2", 
-                        "Solenoid 1 (Node 3 BACK2)")
-        self._add_device("s2", NODE_3, RELAY_BACK1, "BACK1", 
-                        "Solenoid 2 (Node 3 BACK1)")
-        self._add_device("s3", NODE_3, RELAY_RS1_DS2, "RS1_DS2", 
-                        "Solenoid 3 (Node 3 RS1&DS2)")
-        self._add_device("s4", NODE_3, RELAY_RS2_DS1, "RS2_DS1", 
-                        "Solenoid 4 (Node 3 RS2&DS1)")
-        self._add_device("s5", NODE_3, RELAY_FP1, "FP1", 
-                        "Solenoid 5 (Node 3 FP1)")
-        self._add_device("s6", NODE_3, RELAY_P1_P2, "P1_P2", 
-                        "Solenoid 6 / P1&P2 (Node 3)")
-        self._add_device("s8", NODE_3, RELAY_S1_220V, "S1_220V", 
-                        "Solenoid 8 / 220V (Node 3 S1)")
-        
-    def _add_device(self, name: str, node_id: str, relay_num: int, 
-                   relay_label: str, description: str):
-        """Add a device mapping."""
+        self._add("s1", NODE_3, RELAY_BACK2, "BACK2",
+                  "Solenoid 1 — Shampoo line gate")
+        self._add("s2", NODE_3, RELAY_BACK1, "BACK1",
+                  "Solenoid 2 — Common spray / anti-backflow")
+        self._add("s3", NODE_3, RELAY_RS2_DS1, "RS2_DS1",
+                  "Solenoid 3 — Disinfectant line gate")
+        self._add("s4", NODE_3, RELAY_RS1_DS2, "RS1_DS2",
+                  "Solenoid 4 — Common valve / anti-backflow")
+        self._add("s5", NODE_3, RELAY_FP1, "FP1",
+                  "Solenoid 5 — Water line")
+        self._add("bottom", NODE_3, RELAY_P1_P2, "P1_P2",
+                  "Flush Bottom Nozzle")
+        self._add("s8", NODE_3, RELAY_S1_220V, "S1_220V",
+                  "Main Gate 220V — Bath lines")
+
+        # =====================================================================
+        # Backward-compatible aliases (old names → new names)
+        # =====================================================================
+        self._alias("s6", "bottom")
+        self._alias("s7", "top")
+        self._alias("s9", "flushmain")
+
+    def _add(self, name: str, node_id: str, relay_num: int,
+             relay_label: str, description: str):
         self._devices[name] = DeviceInfo(
             name=name,
             node_id=node_id,
             relay_num=relay_num,
             relay_label=relay_label,
-            description=description
+            description=description,
         )
-        
+
+    def _alias(self, alias: str, target: str):
+        """Create an alias that points to the same DeviceInfo."""
+        if target in self._devices:
+            self._devices[alias] = self._devices[target]
+
     def __getattr__(self, name: str) -> DeviceInfo:
-        """Get device by attribute access (e.g., devices.p1)."""
         if name.startswith('_'):
             raise AttributeError(name)
         if name in self._devices:
@@ -180,19 +187,23 @@ class DeviceMap:
         raise AttributeError(f"Unknown device: {name}")
         
     def get(self, name: str) -> Optional[DeviceInfo]:
-        """Get device by name."""
         return self._devices.get(name)
         
     def all_devices(self):
-        """Get all device mappings."""
-        return self._devices.copy()
-        
+        """Get all device mappings (excludes aliases)."""
+        primary = {}
+        seen_tuples = set()
+        for name, dev in self._devices.items():
+            key = dev.as_tuple()
+            if key not in seen_tuples:
+                primary[name] = dev
+                seen_tuples.add(key)
+        return primary
+
     def get_node_devices(self, node_id: str):
-        """Get all devices for a specific node."""
-        return {k: v for k, v in self._devices.items() if v.node_id == node_id}
+        return {k: v for k, v in self.all_devices().items() if v.node_id == node_id}
         
     def print_mapping(self):
-        """Print all device mappings."""
         print("\n" + "=" * 70)
         print("  DEVICE MAPPING - Project Spotless")
         print("=" * 70)
@@ -202,7 +213,7 @@ class DeviceMap:
             print(f"\n  {node_id}:")
             print("-" * 70)
             for name, device in sorted(node_devices.items(), key=lambda x: x[1].relay_num):
-                print(f"    {name:6} → Relay {device.relay_num} ({device.relay_label:10}) - {device.description}")
+                print(f"    {name:10} → Relay {device.relay_num} ({device.relay_label:10}) - {device.description}")
         
         print("\n" + "=" * 70)
 
@@ -218,25 +229,16 @@ class DeviceHandle:
         self._controller = controller
         
     def on(self) -> bool:
-        """Turn the device ON."""
-        logger.info(f"Turning ON {self.device.name} ({self.device.description})")
+        logger.info(f"ON  {self.device.name} ({self.device.description})")
         return self._controller.set_relay(
-            self.device.node_id, 
-            self.device.relay_num, 
-            True
-        )
+            self.device.node_id, self.device.relay_num, True)
         
     def off(self) -> bool:
-        """Turn the device OFF."""
-        logger.info(f"Turning OFF {self.device.name} ({self.device.description})")
+        logger.info(f"OFF {self.device.name} ({self.device.description})")
         return self._controller.set_relay(
-            self.device.node_id, 
-            self.device.relay_num, 
-            False
-        )
+            self.device.node_id, self.device.relay_num, False)
         
     def set(self, state: bool) -> bool:
-        """Set device state."""
         return self.on() if state else self.off()
         
     @property
@@ -254,9 +256,10 @@ class DeviceController:
     
     Usage:
         dc = DeviceController(node_controller)
-        dc.p1.on()      # Turn on p1
-        dc.p1.off()     # Turn off p1
-        dc.pump.on()    # Turn on main pump
+        dc.p1.on()         # Turn on shampoo pump
+        dc.pump.on()       # Turn on booster pump
+        dc.top.on()        # Turn on flush top nozzle
+        dc.flushmain.on()  # Turn on autoflush gate
     """
     
     def __init__(self, node_controller):
@@ -264,12 +267,18 @@ class DeviceController:
         self._devices = DeviceMap()
         self._handles = {}
         
-        # Create handles for all devices
         for name, device_info in self._devices.all_devices().items():
             self._handles[name] = DeviceHandle(device_info, node_controller)
-            
+
+        # Also register aliases
+        for alias in ["s6", "s7", "s9"]:
+            dev = self._devices.get(alias)
+            if dev:
+                target_name = dev.name
+                if target_name in self._handles:
+                    self._handles[alias] = self._handles[target_name]
+
     def __getattr__(self, name: str) -> DeviceHandle:
-        """Get device handle by attribute access."""
         if name.startswith('_'):
             raise AttributeError(name)
         if name in self._handles:
@@ -277,20 +286,22 @@ class DeviceController:
         raise AttributeError(f"Unknown device: {name}")
         
     def get(self, name: str) -> Optional[DeviceHandle]:
-        """Get device handle by name."""
         return self._handles.get(name)
         
     def all_off(self) -> bool:
-        """Turn off all devices."""
-        logger.warning("ALL OFF - Turning off all devices")
+        logger.warning("ALL OFF — Turning off all devices")
         success = True
-        for handle in self._handles.values():
+        seen = set()
+        for name, handle in self._handles.items():
+            key = (handle.device.node_id, handle.device.relay_num)
+            if key in seen:
+                continue
+            seen.add(key)
             if not handle.off():
                 success = False
         return success
         
     def turn_on(self, *device_names: str) -> bool:
-        """Turn on multiple devices."""
         success = True
         for name in device_names:
             handle = self._handles.get(name)
@@ -303,7 +314,6 @@ class DeviceController:
         return success
         
     def turn_off(self, *device_names: str) -> bool:
-        """Turn off multiple devices."""
         success = True
         for name in device_names:
             handle = self._handles.get(name)
@@ -316,20 +326,11 @@ class DeviceController:
         return success
         
     def toggle_devices(self, device_names: list, state: bool) -> bool:
-        """Set multiple devices to the same state."""
-        success = True
-        for name in device_names:
-            handle = self._handles.get(name)
-            if handle:
-                if not handle.set(state):
-                    success = False
-            else:
-                logger.error(f"Unknown device: {name}")
-                success = False
-        return success
+        if state:
+            return self.turn_on(*device_names)
+        return self.turn_off(*device_names)
         
     def print_mapping(self):
-        """Print device mapping."""
         self._devices.print_mapping()
 
 
@@ -343,22 +344,16 @@ devices = DeviceMap()
 # Quick Reference Functions
 # =============================================================================
 def get_device(name: str) -> Optional[DeviceInfo]:
-    """Get device info by name."""
     return devices.get(name)
 
 def get_node_relay(name: str) -> Optional[Tuple[str, int]]:
-    """Get (node_id, relay_num) for a device name."""
     device = devices.get(name)
     return device.as_tuple() if device else None
 
 def print_device_mapping():
-    """Print all device mappings."""
     devices.print_mapping()
 
 
-# =============================================================================
-# Main - Print mapping when run directly
-# =============================================================================
 if __name__ == "__main__":
     print_device_mapping()
     
@@ -367,12 +362,13 @@ if __name__ == "__main__":
     print("from device_map import devices, DeviceController")
     print("")
     print("# Get device info")
-    print(f"devices.p1 = {devices.p1}")
-    print(f"devices.ro1 = {devices.ro1}")
-    print(f"devices.pump = {devices.pump}")
+    print(f"devices.p1       = {devices.p1}")
+    print(f"devices.top      = {devices.top}")
+    print(f"devices.bottom   = {devices.bottom}")
+    print(f"devices.flushmain= {devices.flushmain}")
+    print(f"devices.s8       = {devices.s8}")
     print("")
-    print("# With controller (requires NodeController)")
-    print("dc = DeviceController(node_controller)")
-    print("dc.p1.on()   # Turn ON p1")
-    print("dc.p1.off()  # Turn OFF p1")
-    print("dc.turn_on('p1', 'ro1', 'd1')  # Turn on multiple")
+    print("# Backward-compatible aliases")
+    print(f"devices.s6       = {devices.s6}  (alias for 'bottom')")
+    print(f"devices.s7       = {devices.s7}  (alias for 'top')")
+    print(f"devices.s9       = {devices.s9}  (alias for 'flushmain')")

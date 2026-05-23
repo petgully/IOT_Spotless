@@ -379,10 +379,14 @@ Project_Spotless/
     │       ├── js/session.js
     │       └── images/
     │
-    ├── scripts/                 # Setup scripts
-    │   ├── setup_kiosk.sh       # One-time setup
-    │   ├── start_kiosk.sh       # Launch script
-    │   └── spotless.service     # Systemd service
+    ├── scripts/                          # Setup scripts
+    │   ├── bootstrap.sh                  # One-command Pi setup (use this!)
+    │   ├── setup_kiosk.sh                # Legacy: kiosk-mode-only setup
+    │   ├── setup_and_check.sh            # Legacy: env + node check only
+    │   ├── check_nodes.sh                # ESP32 connectivity diagnostic
+    │   ├── spotless-kiosk.service        # Canonical systemd unit
+    │   ├── spotless.service.legacy       # Old systemd unit (kept for reference)
+    │   └── start_kiosk.sh.legacy         # Old launcher (replaced by systemd)
     │
     └── tests/                   # Test scripts
         ├── test_db_connection.py
@@ -392,6 +396,10 @@ Project_Spotless/
 ---
 
 ## Setup Guide
+
+> **Quick path for new booths:** see `docs/DEPLOYMENT.md` — one bootstrap
+> command replaces the entire Pi-side flow below. The detailed steps here are
+> kept for reference and customisation.
 
 ### 1. ESP32 Setup
 

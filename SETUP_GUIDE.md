@@ -125,23 +125,28 @@ sudo ./scripts/setup_kiosk.sh
 
 ### 2.3 Enable Systemd Service (Alternative Method)
 
-**If you prefer systemd service instead of desktop autostart:**
+> **Recommended:** use `bootstrap.sh` instead — it installs the canonical
+> `spotless-kiosk.service` for you. See `docs/DEPLOYMENT.md`.
+>
+> The instructions below are kept for reference only.
+
+**If you prefer to install the systemd service manually:**
 
 ```bash
-# Copy service file
-sudo cp scripts/spotless.service /etc/systemd/system/
+# Copy service file (canonical unit)
+sudo cp scripts/spotless-kiosk.service /etc/systemd/system/
 
 # Reload systemd
 sudo systemctl daemon-reload
 
 # Enable service (starts on boot)
-sudo systemctl enable spotless
+sudo systemctl enable spotless-kiosk
 
 # Start service now
-sudo systemctl start spotless
+sudo systemctl start spotless-kiosk
 
 # Check status
-sudo systemctl status spotless
+sudo systemctl status spotless-kiosk
 ```
 
 ---

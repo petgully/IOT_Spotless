@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"name": "IOT_Spotless (Main)",
+			"path": "."
+		},
+		{
+			"name": "SpotlessBooking (Reference)",
+			"path": "../../Project_Spotless/SpotlessBooking"
+		}
+	],
+	"settings": {
+		"files.readonlyFromPermissions": false
+	}
+}

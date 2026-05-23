@@ -123,7 +123,8 @@ def setup_logging(
     machine_id: str = "",
     log_level: int = DEFAULT_LOG_LEVEL,
     console_level: int = logging.INFO,
-    include_detailed_format: bool = False
+    include_detailed_format: bool = False,
+    enable_db_logging: bool = True
 ) -> logging.Logger:
     """
     Setup logging for the application.
@@ -133,10 +134,13 @@ def setup_logging(
         log_level: Logging level for file handler
         console_level: Logging level for console handler
         include_detailed_format: Use detailed format with file/line info
+        enable_db_logging: Also send logs to the system_logs DB table
         
     Returns:
         Configured logger
     """
+    global _db_log_handler
+
     # Ensure log directory exists
     ensure_log_directory()
     
@@ -170,12 +174,29 @@ def setup_logging(
     console_handler.setLevel(console_level)
     console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root_logger.addHandler(console_handler)
+
+    # Database handler (logs → system_logs table)
+    if enable_db_logging:
+        try:
+            from db_manager import DatabaseConfig
+            from db_log_handler import DatabaseLogHandler
+
+            db_config = DatabaseConfig.from_env()
+            if db_config.host:
+                _db_log_handler = DatabaseLogHandler(
+                    db_config, machine_id=machine_id, level=logging.INFO
+                )
+                _db_log_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+                root_logger.addHandler(_db_log_handler)
+        except Exception as e:
+            print(f"[logging_config] DB log handler not available: {e}")
     
     # Log startup
     logger = logging.getLogger(__name__)
     logger.info("=" * 60)
     logger.info(f"Logging initialized for machine: {machine_id or 'default'}")
     logger.info(f"Log file: {log_file}")
+    logger.info(f"DB logging: {'enabled' if enable_db_logging and _db_log_handler else 'disabled'}")
     logger.info("=" * 60)
     
     return logger
@@ -279,6 +300,17 @@ class SessionLogger:
 
 
 # =============================================================================
+# Global DB Log Handler (set by setup_logging)
+# =============================================================================
+_db_log_handler = None
+
+
+def get_db_log_handler():
+    """Return the active DatabaseLogHandler, or None."""
+    return _db_log_handler
+
+
+# =============================================================================
 # Global Session Logger
 # =============================================================================
 _session_logger: Optional[SessionLogger] = None
@@ -292,12 +324,15 @@ def get_session_logger(machine_id: str = "") -> SessionLogger:
 
 
 def set_session_logger_machine_id(machine_id: str):
-    """Set the machine ID for the session logger."""
+    """Set the machine ID for the session logger and DB log handler."""
     global _session_logger
     if _session_logger is None:
         _session_logger = SessionLogger(machine_id)
     else:
         _session_logger.machine_id = machine_id
+
+    if _db_log_handler is not None:
+        _db_log_handler.set_machine_id(machine_id)
 
 
 # =============================================================================

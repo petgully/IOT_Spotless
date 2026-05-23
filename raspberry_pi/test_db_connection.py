@@ -10,6 +10,7 @@ This script tests:
 import sys
 sys.path.insert(0, '.')
 from db_manager import DatabaseManager, DEFAULT_DB_CONFIG
+import db_sessions
 
 def test_connection():
     print('=' * 70)
@@ -139,7 +140,8 @@ def test_logging_flow(db):
     try:
         # Test session activation
         print('  Simulating session activation...')
-        session_id = db.log_session_activated(
+        session_id = db_sessions.log_session_activated(
+            db,
             mobile_number='TEST_USER',
             machine_id='TEST_MACHINE',
             session_type='test',
@@ -155,22 +157,22 @@ def test_logging_flow(db):
             print(f'  Session activated! ID: {session_id}')
             
             # Start session
-            db.log_session_start(session_id)
+            db_sessions.log_session_start(db, session_id)
             print(f'  Session started!')
             
             # Log a stage
-            stage_id = db.log_stage_start(session_id, 'test_stage', 1, 60)
+            stage_id = db_sessions.log_stage_start(db, session_id, 'test_stage', 1, 60)
             if stage_id:
                 print(f'  Stage started! ID: {stage_id}')
-                db.log_stage_complete(stage_id, 58)
+                db_sessions.log_stage_complete(db, stage_id, 58)
                 print(f'  Stage completed!')
             
             # Log an event
-            db.log_event(session_id, 'test_event', {'test': 'data'})
+            db_sessions.log_event(db, session_id, 'test_event', {'test': 'data'})
             print(f'  Event logged!')
             
             # Complete session
-            db.log_session_complete(session_id, 120)
+            db_sessions.log_session_complete(db, session_id, 120)
             print(f'  Session completed!')
             
             print('\n  SUCCESS: Logging flow works correctly!')
