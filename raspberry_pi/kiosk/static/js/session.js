@@ -13,9 +13,20 @@
 // =============================================================================
 let socket = null;
 let sessionData = null;
-let stages = [];
-let currentStageIndex = 0;
+let stages = [];                  // FULL list from backend (incl. hidden stages)
+let currentStageIndex = 0;        // index into the full `stages` list
 let timerInterval = null;
+
+// Customer-facing stages only. These are the rows actually rendered in the
+// timeline. Internal priming / draining stages (show_timer === false) are
+// kept in `stages` so name-based lookup and overall-progress math still
+// work, but they don't get their own timeline row — the customer doesn't
+// need to know we're flushing the chemistry lines between stages.
+function isVisibleStage(stage) {
+    // Default true for safety: any stage that doesn't explicitly set
+    // show_timer=false is treated as customer-visible.
+    return !stage || stage.show_timer !== false;
+}
 
 // Safety-net state: ensures the kiosk never gets permanently stuck if a
 // WebSocket event is missed (e.g. the Pi rebooted mid-session, the socket
@@ -326,56 +337,84 @@ function handleSessionError(data) {
 // =============================================================================
 // Timeline
 // =============================================================================
+//
+// The timeline renders ONLY customer-facing stages (show_timer !== false).
+// Each row carries:
+//   - data-stage-index:  position in the FULL backend list (used to compare
+//                        against the executor's emitted stage_index)
+//   - data-stage-name:   canonical stage name (preferred lookup key)
+//   - data-visible-pos:  1-based position among visible rows (used as the
+//                        circle number, so the customer sees clean 1..N)
+//
 function buildTimeline() {
     elements.stageTimeline.innerHTML = '';
-    
+
+    let visiblePos = 0;
     stages.forEach((stage, index) => {
+        if (!isVisibleStage(stage)) return;
+        visiblePos += 1;
+
         const item = document.createElement('div');
         item.className = 'timeline-item pending';
         item.dataset.stageIndex = index;
         item.dataset.stageName = stage.name || '';
+        item.dataset.visiblePos = visiblePos;
 
         const duration = formatDuration(stage.duration);
 
         item.innerHTML = `
-            <div class="timeline-icon">${index + 1}</div>
+            <div class="timeline-icon">${visiblePos}</div>
             <div class="timeline-label">${stage.label}</div>
             <div class="timeline-duration">${duration}</div>
         `;
 
         elements.stageTimeline.appendChild(item);
     });
-    
-    // Mark first stage as active
-    const firstItem = elements.stageTimeline.querySelector('[data-stage-index="0"]');
+
+    // Mark the first visible row as active (will be corrected by the first
+    // stage_start event if the executor begins with a hidden priming stage).
+    const firstItem = elements.stageTimeline.querySelector('.timeline-item');
     if (firstItem) {
         firstItem.classList.remove('pending');
         firstItem.classList.add('active');
     }
 }
 
-function updateTimeline(activeIndex) {
+// Update the timeline given the executor's current full-list index.
+//
+// Behaviour:
+//   - If the executor's current stage IS visible, that row becomes "active"
+//     and every visible row before it becomes "completed".
+//   - If the executor's current stage is HIDDEN (priming/draining), the
+//     timeline is updated to show all visible rows up to that point as
+//     completed and NO row is active. The top label still reads the hidden
+//     stage's label ("Preparing System" etc.) so an operator can tell the
+//     system isn't idle, but the customer-facing timeline doesn't sprout
+//     mysterious extra rows.
+//
+function updateTimeline(activeFullIndex) {
     const items = elements.stageTimeline.querySelectorAll('.timeline-item');
-    
-    items.forEach((item, index) => {
+    const activeStage = stages[activeFullIndex];
+    const activeIsVisible = isVisibleStage(activeStage);
+
+    items.forEach((item) => {
+        const itemFullIdx = parseInt(item.dataset.stageIndex, 10);
+        const visiblePos = item.dataset.visiblePos || '';
         item.classList.remove('active', 'completed', 'pending');
-        
-        if (index < activeIndex) {
+        const icon = item.querySelector('.timeline-icon');
+
+        if (itemFullIdx < activeFullIndex) {
             item.classList.add('completed');
-            const icon = item.querySelector('.timeline-icon');
-            icon.innerHTML = '✓';
-        } else if (index === activeIndex) {
+            icon.innerHTML = '\u2713';
+        } else if (itemFullIdx === activeFullIndex && activeIsVisible) {
             item.classList.add('active');
-            const icon = item.querySelector('.timeline-icon');
-            icon.innerHTML = index + 1;
+            icon.innerHTML = visiblePos;
         } else {
             item.classList.add('pending');
-            const icon = item.querySelector('.timeline-icon');
-            icon.innerHTML = index + 1;
+            icon.innerHTML = visiblePos;
         }
     });
-    
-    // Scroll to active item
+
     const activeItem = elements.stageTimeline.querySelector('.timeline-item.active');
     if (activeItem) {
         activeItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
