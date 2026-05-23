@@ -16,7 +16,16 @@ StartLimitIntervalSec=120
 StartLimitBurst=10
 StandardOutput=journal
 StandardError=journal
-TimeoutStopSec=120
+
+# Shutdown behaviour. The main process installs SIGTERM handlers that
+# turn off relays, close MQTT, then os._exit(0). Werkzeug otherwise
+# never returns on its own, so without this systemd waited the full
+# TimeoutStopSec on every reboot. 15s is plenty for the cleanup; if
+# anything genuinely hangs we'd rather KILL than block the reboot.
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

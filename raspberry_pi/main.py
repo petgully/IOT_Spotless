@@ -29,6 +29,7 @@ Usage:
 =============================================================================
 """
 
+import os
 import sys
 import logging
 import signal
@@ -212,6 +213,13 @@ class SpotlessApplication:
         return True
 
     def stop(self):
+        # Idempotent: signal handler may call this, then the kiosk's
+        # `finally` block can also call it. The os._exit() in the signal
+        # handler usually prevents that, but if cleanup is fast enough
+        # we want a second call to be a no-op rather than a crash.
+        if getattr(self, "_stopped", False):
+            return
+        self._stopped = True
         self.logger.info("Shutting down...")
         self.running = False
 
@@ -464,9 +472,29 @@ def main():
     # Create application
     app = SpotlessApplication()
 
+    # Signal handling. We need to handle the kiosk-mode case specially:
+    # the main thread is blocked inside socketio.run() (Werkzeug threading
+    # server) which does not return on a flag flip. Setting app.running
+    # alone leaves systemd waiting for the full TimeoutStopSec on every
+    # reboot. So on SIGTERM we run app.stop() to safely turn off relays,
+    # close MQTT and the DB, then os._exit(0) to bypass Werkzeug's serve
+    # loop and let systemd proceed immediately.
+    _shutting_down = {"flag": False}
+
     def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}")
+        if _shutting_down["flag"]:
+            # Second signal — operator/systemd is impatient. Hard exit.
+            os._exit(1)
+        _shutting_down["flag"] = True
+        logger.info(f"Received signal {signum}, shutting down...")
         app.running = False
+        try:
+            app.stop()
+        except Exception as e:
+            logger.warning(f"Error during shutdown cleanup: {e}")
+        if args.kiosk:
+            # Werkzeug blocks the main thread; only os._exit unblocks it.
+            os._exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
