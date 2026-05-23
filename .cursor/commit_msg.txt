@@ -1,58 +1,33 @@
-Phase 2: kiosk refactor to integration contract v1.1
+Phase 2a: Windows ESP32 flash wrapper (tools/flash_node.ps1)
 
-Implements docs/INTEGRATION_CONTRACT.md v1.1 end-to-end on the kiosk side.
-The kiosk now resolves bookings to (size, package, addons), tracks every
-second of relay-on time per stage, persists progress locally + to cloud,
-and resumes interrupted sessions after power loss without giving away
-free service.
+One-command ESP32-S3 flashing for non-technical operators on Windows.
+Replaces the manual "edit config.h, find PlatformIO PATH, detect COM port,
+cd into node dir, run pio" sequence with:
 
-Modules changed:
-- session_stages.py:  rewritten around build_session(size, package, addons).
-  SET A / SET B size profiles, disinfectant always included, med_bath
-  swaps shampoo pump p1->p3, extra_dry adds +5min or runs standalone.
-  Adds 'accounting' field per stage (relays vs wallclock).
-- config_manager.py:  drops session_types block; introduces size_profiles
-  (A,B) + cloud_sync + resume sub-configs. Migrates old configs forward.
-- spotless_controller.py:  StageExecutor rewritten with per-second
-  accounting, soft (2s) + hard (10s) relay-confirmation timeouts, resume
-  support that skips completed stages and rewinds the current stage to
-  its already-delivered count, and per-stage budget cap (anti-fraud).
-- session_runner.py:  drives fresh + resume flows; wires SessionProgressStore
-  (local SQLite) and CloudSyncQueue (RDS retries) into the executor's
-  callbacks. Cloud writes restricted to the 9 major stages from §8.5.
-- db_bookings.py:  Query A + Query B + booking_sessions writers (§8.1-§8.6)
-  plus apply_cloud_op() dispatcher used by cloud_sync.
-- qr_validator.py:  rewritten as a 7-gate flow (§7.3) returning
-  start | resume | refuse. Booking codes routed through validate_booking_qr;
-  service-mode prefixes (TEST/DEMO/DRY/...) routed through validate_test_prefix.
-- kiosk/web_server.py:  routes use the new validator + machine_id; surfaces
-  recovery_pending banner (§9.1) and cloud-sync degraded flag; builds
-  ResumeState from local SQLite (preferred) or cloud completed_stages CSV.
-- main.py:  initialises SessionProgressStore + CloudSyncQueue, runs the
-  boot-recovery check at startup, propagates recovered_session to the
-  kiosk UI.
+    .\tools\flash_node.ps1 1                # flash node 1
+    .\tools\flash_node.ps1 all              # flash all 3 (prompts to swap USB)
+    .\tools\flash_node.ps1 all -WifiSsid X -WifiPassword Y -MqttBroker Z   # site setup
+    .\tools\flash_node.ps1 -Check           # toolchain sanity check
 
-New modules:
-- session_progress.py:  SQLite store for the data/session_state.db ledger;
-  per-second / per-5s flush APIs, dedup CSV completion, boot recovery.
-- cloud_sync.py:  background async queue with exponential backoff and
-  on-disk persistence at data/cloud_write_queue.json.
+Wrapper features:
+- Auto-locates pio.exe regardless of where Python is installed
+  (PATH -> ~/.platformio/penv -> %APPDATA%/Python/Python*/Scripts -> ...).
+  No more hardcoded Python313 path in the agent skill.
+- Auto-detects ESP32 COM port; filters out Bluetooth virtual ports.
+  Pre-validates user-supplied -Port against actual present ports.
+- Reads + displays config.h (NODE_ID / WIFI_SSID / MQTT_BROKER, masked
+  password) before flashing so the operator confirms intent.
+- Optional in-place patching of WiFi/MQTT settings via flags
+  (uses [regex]::Replace with proper capture-group escaping).
+- 'all' mode prints the physical role of each board (Container 1 / 2 /
+  Bath line) in the swap prompt so identical-looking PCBs aren't
+  cross-flashed.
+- 'all' mode always re-detects COM port between boards (the port almost
+  always changes); -Port is intentionally ignored there.
+- -Check returns exit 1 if no ESP32 is detected (was incorrectly 0).
+- ASCII-only output (works in PS 5.1 default ANSI encoding without BOM).
 
-Tooling:
-- .gitignore: excludes raspberry_pi/data/ (SQLite + queue JSON) and the
-  scratch .cursor/commit_msg.txt + tmp_*.py files used during dev.
-
-Verification:
-- python -m compileall -q raspberry_pi -> clean
-- session_stages.build_session: all 5 resolution cases (bath/complete/diy/
-  addon_only/trim and indie_special profile-pin) pass
-- session_progress: fresh insert, dedup complete_stage, resume_count, mark
-  completed paths all pass
-- cloud_sync: immediate fail -> queue persistence -> retry-with-backoff
-  drains queue successfully
-- spotless_controller: 24-stage FULL_SESSION runs end-to-end on stub
-  controllers; resume mid-shampoo recovers to exact remaining seconds;
-  anti-fraud confirm-off aborts cleanly after 10s
-- session_runner end-to-end: 24/24 stages locally, exactly 11 cloud ops
-  (1 session_start + 9 major stage_complete + 1 session_complete) -
-  matches contract §8.5 to the op.
+Companion docs:
+- tools/README.md: full operator usage guide.
+- .cursor/skills/flash-esp32/SKILL.md: rewritten to invoke the wrapper as
+  the primary path; manual pio fallback no longer hardcodes a Python path.

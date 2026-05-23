@@ -10,8 +10,10 @@ description: >-
 
 ## Overview
 
-This skill flashes firmware onto ESP32-S3 DevKitC boards for Project Spotless.
-There are 3 nodes, each with its own firmware in the project repo.
+This skill flashes firmware onto ESP32-S3 DevKitC-1 boards for Project Spotless.
+Always use the wrapper script `tools/flash_node.ps1` rather than calling
+`pio` directly — it auto-detects PlatformIO regardless of where Python is
+installed, auto-detects the COM port, and reports clear success/failure.
 
 ## Node Reference
 
@@ -21,105 +23,96 @@ There are 3 nodes, each with its own firmware in the project repo.
 | Node 2 | spotless_node2 | `esp32_node2/` | `esp32_node2/include/config.h` |
 | Node 3 | spotless_node3 | `esp32_node3/` | `esp32_node3/include/config.h` |
 
-## Prerequisites
+All 3 nodes share identical `platformio.ini` (`board = esp32-s3-devkitc-1`)
+and identical pin assignments. Only `NODE_ID` and the header comment differ.
 
-PlatformIO CLI must be available. If `pio --version` fails:
+## Workflow — when the user asks to flash a node
 
-```powershell
-pip install platformio
-$env:Path += ";C:\Users\deepa\AppData\Roaming\Python\Python313\Scripts"
-```
+### Step 1: Identify the node(s)
 
-## Flash Workflow
+Ask the user which node (1, 2, 3, or "all") if not specified.
 
-Follow these steps exactly when the user asks to flash a node:
+### Step 2: Run the wrapper
 
-### Step 1: Identify which node(s) to flash
-
-Ask the user which node (1, 2, or 3) if not specified. They may say "all" for all three.
-
-### Step 2: Confirm config.h settings
-
-Read the node's `config.h` and confirm with the user:
-
-```cpp
-#define WIFI_SSID     "..."           // Must match their WiFi (2.4 GHz only)
-#define WIFI_PASSWORD "..."           // Must be correct
-#define MQTT_BROKER   "192.168.0.16"  // Must match Raspberry Pi static IP
-```
-
-If the user wants to change WiFi or MQTT broker IP, update `config.h` before flashing.
-
-### Step 3: Ensure PlatformIO PATH is set
-
-Run in the shell before any `pio` command:
+The wrapper handles PlatformIO discovery, COM port detection, config.h
+display, and the actual flash. Invoke it as:
 
 ```powershell
-$env:Path += ";C:\Users\deepa\AppData\Roaming\Python\Python313\Scripts"
+# Single node
+.\tools\flash_node.ps1 1
+
+# All three (prompts to swap USB cable between)
+.\tools\flash_node.ps1 all
+
+# Update WiFi + Pi IP at the same time as flashing
+.\tools\flash_node.ps1 all -WifiSsid "..." -WifiPassword "..." -MqttBroker "192.168.0.20"
+
+# Skip "Proceed?" prompt (for scripted runs)
+.\tools\flash_node.ps1 1 -Yes
+
+# Sanity-check the toolchain without flashing
+.\tools\flash_node.ps1 -Check
 ```
 
-### Step 4: Detect the COM port
+### Step 3: Watch for success
 
-The user should have the ESP32 plugged in via USB. Detect the port:
+The wrapper prints `[OK] Node N flashed successfully.` on success or
+`[FAIL] Node N flash FAILED (exit X).` with the most common fixes on failure.
+Trust the wrapper's exit code (0 = success, non-zero = failure) — the
+PlatformIO `[SUCCESS]` line in the underlying output is incidental.
 
-```powershell
-mode 2>&1 | Select-String "COM"
-```
+### Step 4: For "all" mode
 
-This returns something like `Status for device COM12:`. Extract the COM port number.
+The wrapper handles cable-swap prompts automatically:
+1. Flashes node 1
+2. Prompts: "Disconnect node 1 and connect node 2. Press Enter when ready"
+3. Re-detects COM port (it usually changes)
+4. Flashes node 2
+5. Repeats for node 3
+6. Prints a summary table
 
-If no COM port is found:
-- Ask the user to check the USB cable connection
-- They may need to install the CP210x or CH340 driver
-- ESP32-S3 native USB should work without extra drivers on Windows 10+
+## Expected timings
 
-### Step 5: Build and flash
-
-Run from the node's directory:
-
-```powershell
-pio run --target upload --upload-port COM{N} 2>&1
-```
-
-Where `{N}` is the detected COM port number.
-
-**Working directories:**
-- Node 1: `esp32_node1/`
-- Node 2: `esp32_node2/`
-- Node 3: `esp32_node3/`
-
-**Expected timings:**
-- First flash ever: ~10-15 minutes (downloads ESP32-S3 toolchain + framework)
-- Subsequent flashes: ~25-30 seconds
-
-### Step 6: Verify success
-
-Look for `[SUCCESS]` in the output. Report to the user:
-- Flash status (success/fail)
-- If flashing multiple nodes, ask them to swap the USB cable to the next ESP32
-
-### Step 7: For multiple nodes
-
-When flashing all 3 nodes:
-1. Flash Node 1 → ask user to unplug and connect Node 2
-2. Re-detect COM port (it may change between boards)
-3. Flash Node 2 → ask user to unplug and connect Node 3
-4. Re-detect COM port
-5. Flash Node 3
+- **First flash on a new machine:** ~10-15 minutes (PlatformIO downloads the
+  ESP32-S3 toolchain and Arduino framework, ~150 MB)
+- **Subsequent flashes:** ~25-30 seconds per board
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| `pio` not recognized | Run: `$env:Path += ";C:\Users\deepa\AppData\Roaming\Python\Python313\Scripts"` |
-| No COM port detected | Check USB cable. Try a different port. Install CP210x/CH340 driver. |
-| Upload fails with timeout | Hold the **BOOT** button on ESP32 while upload starts, release after "Connecting..." |
-| `board not found` error | Verify `platformio.ini` has `board = esp32-s3-devkitc-1` |
-| Wrong node flashed | Each node's `config.h` has a unique `NODE_ID`. Verify before flashing. |
+| `pio not found` | Run `pip install --user platformio`. Wrapper will find it on retry. |
+| `Multiple COM ports found, none clearly an ESP32` | Plug in the ESP32 and re-run. Bluetooth virtual COM ports confuse auto-detect. Pass `-Port COMx` to override. |
+| `Upload fails with timeout` | Hold the **BOOT** button on the ESP32 while the upload starts; release after "Connecting..." appears. |
+| `Failed to connect to ESP32-S3` | Try a different USB cable (charge-only cables have no data lines). Try a different USB port. |
+| Wrong node flashed | Each node's `config.h` has a unique `NODE_ID`. The wrapper shows it before flashing — the operator should confirm. |
 
-## platformio.ini Reference
+## Manual fallback (only if the wrapper fails)
 
-All 3 nodes use identical build settings (only `config.h` differs):
+If `flash_node.ps1` itself won't run for some reason, here's the manual flow
+it replaces:
+
+```powershell
+# 1. Make sure pio is on PATH. Common locations (do not hardcode):
+#      %USERPROFILE%\.platformio\penv\Scripts\pio.exe
+#      %APPDATA%\Python\Python<ver>\Scripts\pio.exe
+#      %LOCALAPPDATA%\Programs\Python\Python<ver>\Scripts\pio.exe
+#    Or use:  python -m platformio --version
+
+# 2. Detect COM port
+[System.IO.Ports.SerialPort]::GetPortNames()
+
+# 3. Flash from the node directory
+cd esp32_node1
+pio run --target upload --upload-port COMx
+```
+
+But default to the wrapper. It exists specifically so non-technical operators
+don't need to know any of the above.
+
+## platformio.ini reference
+
+Identical across all 3 nodes:
 
 ```ini
 [env:esp32s3]
@@ -135,16 +128,13 @@ build_flags =
     -DARDUINO_USB_CDC_ON_BOOT=1
 ```
 
-## Quick Examples
+## Quick examples (intent → command)
 
-**User says:** "Flash node 1"
-→ Read config.h, detect COM port, run `pio run --target upload --upload-port COM{N}` in `esp32_node1/`
-
-**User says:** "Flash all nodes"
-→ Flash node 1, ask to swap, flash node 2, ask to swap, flash node 3
-
-**User says:** "Update WiFi to MyNetwork and flash node 2"
-→ Update `WIFI_SSID` and `WIFI_PASSWORD` in `esp32_node2/include/config.h`, then flash
-
-**User says:** "Change MQTT broker to 192.168.1.100 and flash all"
-→ Update `MQTT_BROKER` in all 3 `config.h` files, then flash each sequentially
+| User says | Command |
+|-----------|---------|
+| "Flash node 1" | `.\tools\flash_node.ps1 1` |
+| "Flash all nodes" | `.\tools\flash_node.ps1 all` |
+| "Flash node 2 and watch the serial output" | `.\tools\flash_node.ps1 2 -Monitor` |
+| "Update WiFi to MyNetwork and flash all" | `.\tools\flash_node.ps1 all -WifiSsid "MyNetwork" -WifiPassword "..."` |
+| "Change MQTT broker to 192.168.1.100 and flash all" | `.\tools\flash_node.ps1 all -MqttBroker "192.168.1.100"` |
+| "Just check if PlatformIO is installed" | `.\tools\flash_node.ps1 -Check` |
