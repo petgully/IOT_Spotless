@@ -697,13 +697,16 @@ def get_stage_summary(session_type_or_stages) -> List[Dict]:
         stages = get_stages(session_type_or_stages)
     else:
         stages = session_type_or_stages or []
+    # Return ALL stages (no show_timer filter) so the kiosk timeline indices
+    # stay aligned with the executor's stage_index emits. See the matching
+    # comment in raspberry_pi/kiosk/web_server.py::_kiosk_stage_preview.
     return [
         {
             "name": s["name"],
             "label": s["label"],
             "duration": s["duration"],
             "image": s.get("image", ""),
+            "show_timer": bool(s.get("show_timer", True)),
         }
         for s in stages
-        if s.get("show_timer", True)
     ]

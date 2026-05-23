@@ -119,16 +119,24 @@ def _profile_overrides():
 
 
 def _kiosk_stage_preview(stages):
-    """Convert the raw stage list into a lightweight summary for the UI."""
+    """Convert the raw stage list into a lightweight summary for the UI.
+
+    IMPORTANT: this returns ALL stages, in the same order the executor will
+    run them. Do NOT filter by show_timer here — the executor emits
+    stage_index events referring to the unfiltered list, and any divergence
+    between what the kiosk thinks the stages are and what the executor
+    actually iterates desyncs the timeline (the top label points one place,
+    the timeline highlight points somewhere else).
+    """
     return [
         {
             "name": s["name"],
             "label": s["label"],
             "duration": int(s.get("duration", 0)),
             "image": s.get("image", ""),
+            "show_timer": bool(s.get("show_timer", True)),
         }
         for s in stages
-        if s.get("show_timer", True)
     ]
 
 

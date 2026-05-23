@@ -206,54 +206,71 @@ function armRedirectHome(message, seconds) {
 // =============================================================================
 // Stage Handlers
 // =============================================================================
+// Resolve the canonical timeline index for a backend event. Prefer
+// stage_name (immune to any future filtering or re-ordering on either
+// side); fall back to stage_index. Returns -1 if no match.
+function resolveStageIndex(data) {
+    if (data && typeof data.stage_name === 'string') {
+        const byName = stages.findIndex(s => s.name === data.stage_name);
+        if (byName !== -1) return byName;
+    }
+    if (data && typeof data.stage_index === 'number'
+            && data.stage_index >= 0 && data.stage_index < stages.length) {
+        return data.stage_index;
+    }
+    return -1;
+}
+
 function handleStageStart(data) {
     sessionHasStarted = true;
     serverIdleStreak = 0;
-    currentStageIndex = data.stage_index;
-    
-    // Update stage label
+    const idx = resolveStageIndex(data);
+    if (idx >= 0) currentStageIndex = idx;
+
+    // Top label / current-stage label come straight from the event so they
+    // always reflect what the executor is actually running right now.
     elements.stageLabel.textContent = data.stage_label;
     elements.currentStageName.textContent = data.stage_label;
-    
-    // Update stage image
+
     const imagePath = `/static/images/${data.stage_image}`;
     elements.stageImage.src = imagePath;
     elements.stageImage.onerror = () => {
         elements.stageImage.src = '/static/images/welcome.png';
     };
-    
-    // Reset stage progress
+
     elements.stageProgressPercent.textContent = '0%';
     elements.stageProgressBar.style.width = '0%';
-    
-    // Update timeline
-    updateTimeline(data.stage_index);
+
+    if (idx >= 0) updateTimeline(idx);
 }
 
 function handleStageProgress(data) {
-    // Update timer display
     const remaining = data.remaining;
     const minutes = Math.floor(remaining / 60);
     const seconds = remaining % 60;
     elements.timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    
-    // Update stage progress
+
     elements.stageProgressPercent.textContent = `${data.progress}%`;
     elements.stageProgressBar.style.width = `${data.progress}%`;
-    
-    // Update overall progress
+
+    // Use the resolved index (by name first) so overall progress matches the
+    // local timeline length even if the backend's index numbering ever drifts.
     const totalStages = stages.length;
-    const completedStages = data.stage_index;
+    const idx = resolveStageIndex(data);
+    const completedStages = idx >= 0 ? idx : 0;
     const stageContribution = data.progress / 100;
-    const overallProgress = Math.round(((completedStages + stageContribution) / totalStages) * 100);
-    
+    const overallProgress = totalStages > 0
+        ? Math.round(((completedStages + stageContribution) / totalStages) * 100)
+        : 0;
+
     elements.overallProgressPercent.textContent = `${overallProgress}%`;
     elements.overallProgressBar.style.width = `${overallProgress}%`;
 }
 
 function handleStageComplete(data) {
-    // Mark stage as complete in timeline
-    const timelineItem = document.querySelector(`[data-stage-index="${data.stage_index}"]`);
+    const idx = resolveStageIndex(data);
+    if (idx < 0) return;
+    const timelineItem = document.querySelector(`[data-stage-index="${idx}"]`);
     if (timelineItem) {
         timelineItem.classList.remove('active');
         timelineItem.classList.add('completed');
@@ -316,15 +333,16 @@ function buildTimeline() {
         const item = document.createElement('div');
         item.className = 'timeline-item pending';
         item.dataset.stageIndex = index;
-        
+        item.dataset.stageName = stage.name || '';
+
         const duration = formatDuration(stage.duration);
-        
+
         item.innerHTML = `
             <div class="timeline-icon">${index + 1}</div>
             <div class="timeline-label">${stage.label}</div>
             <div class="timeline-duration">${duration}</div>
         `;
-        
+
         elements.stageTimeline.appendChild(item);
     });
     
