@@ -108,16 +108,68 @@ def _machine_info(cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _node_state_label(v: Any) -> str:
+    """Normalise node state from various shapes to 'online'/'offline'/'unknown'."""
+    if v is True:
+        return "online"
+    if v is False:
+        return "offline"
+    if hasattr(v, "value"):  # NodeState enum
+        return str(v.value)
+    if isinstance(v, dict):
+        if v.get("online"):
+            return "online"
+        return "offline"
+    return str(v) if v is not None else "unknown"
+
+
+def _summarize_session(s: Any) -> Optional[Dict[str, Any]]:
+    """Compress the runner's session dict to a few human-friendly fields.
+
+    runner.current_session can be ~50 KB of stage definitions; rendering it
+    raw into the dashboard turns the System Health card into a wall of
+    JSON. We only want the operator-facing essentials.
+    """
+    if not isinstance(s, dict):
+        return None
+    stages = s.get("stages") or []
+    current_idx = s.get("current_stage")
+    current_stage_name = ""
+    if isinstance(current_idx, int) and 0 <= current_idx < len(stages):
+        cs = stages[current_idx]
+        if isinstance(cs, dict):
+            current_stage_name = cs.get("label") or cs.get("name") or ""
+
+    kind = s.get("kind") or "?"
+    summary: Dict[str, Any] = {
+        "kind": kind,
+        "started_at": s.get("started_at", ""),
+        "stage_count": len(stages),
+        "current_stage_index": current_idx if isinstance(current_idx, int) else None,
+        "current_stage_name": current_stage_name,
+    }
+    if kind == "booking":
+        summary["label"] = (
+            f"{s.get('pet_name') or '?'} "
+            f"({s.get('pet_size') or '?'} / {s.get('package') or '?'})"
+        )
+        summary["booking_code"] = s.get("booking_code", "")
+    else:  # test
+        summary["label"] = f"Test: {s.get('session_type', '?')}"
+        summary["booking_code"] = s.get("qr_code", "")
+    return summary
+
+
 def _health_snapshot() -> Dict[str, Any]:
     """Live system health for the dashboard. All probes are best-effort —
     a missing controller in dev mode must NOT 500 the page."""
     app = _spotless_app()
     health: Dict[str, Any] = {
-        "nodes": {},
+        "nodes": {},                # node_id -> "online"/"offline"/"unknown"
         "nodes_online": 0,
         "nodes_total": 0,
         "session_active": False,
-        "current_session": None,
+        "session_summary": None,    # compact dict, never the raw runner state
         "cloud_degraded": False,
         "cloud_queue_depth": 0,
         "geyser_heating": False,
@@ -129,14 +181,12 @@ def _health_snapshot() -> Dict[str, Any]:
 
     try:
         controller = getattr(app, "controller", None)
-        if controller is not None:
-            states = controller.get_all_node_states() if hasattr(controller, "get_all_node_states") else {}
-            health["nodes"] = states or {}
-            health["nodes_total"] = len(states or {}) or 3
-            health["nodes_online"] = sum(
-                1 for v in (states or {}).values()
-                if (v is True) or (isinstance(v, dict) and v.get("online"))
-            )
+        if controller is not None and hasattr(controller, "get_all_node_states"):
+            states = controller.get_all_node_states() or {}
+            normalised = {nid: _node_state_label(v) for nid, v in states.items()}
+            health["nodes"] = normalised
+            health["nodes_total"] = len(normalised) or 3
+            health["nodes_online"] = sum(1 for v in normalised.values() if v == "online")
     except Exception as e:
         logger.warning(f"admin health: node states unavailable: {e}")
 
@@ -144,9 +194,9 @@ def _health_snapshot() -> Dict[str, Any]:
         runner = getattr(app, "runner", None)
         if runner is not None:
             health["session_active"] = bool(runner.is_active)
-            health["current_session"] = runner.current_session
-    except Exception:
-        pass
+            health["session_summary"] = _summarize_session(runner.current_session)
+    except Exception as e:
+        logger.warning(f"admin health: runner snapshot failed: {e}")
 
     try:
         cs = getattr(app, "cloud_sync", None)

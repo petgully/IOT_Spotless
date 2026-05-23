@@ -20,14 +20,51 @@
     <dl class="kv">
       <dt>ESP32 nodes online</dt>
       <dd>
-        <span class="pill pill-{{ 'ok' if health.nodes_online == health.nodes_total else 'warn' }}">
+        <span class="pill pill-{{ 'ok' if health.nodes_online == health.nodes_total and health.nodes_total > 0 else 'warn' }}">
           {{ health.nodes_online }} / {{ health.nodes_total }}
         </span>
       </dd>
+      {% if health.nodes %}
+        {% for node_id, state in health.nodes.items() %}
+          <dt class="muted">&nbsp;&nbsp;{{ node_id }}</dt>
+          <dd>
+            <span class="pill pill-{{ 'ok' if state == 'online' else 'warn' }}">{{ state }}</span>
+          </dd>
+        {% endfor %}
+      {% endif %}
+
       <dt>Session active</dt>
-      <dd>{{ 'Yes — ' ~ health.current_session if health.session_active else 'No' }}</dd>
+      <dd>
+        {% if health.session_active and health.session_summary %}
+          <span class="pill pill-ok">Yes</span>
+          <div class="session-detail">
+            <div>{{ health.session_summary.label }}</div>
+            {% if health.session_summary.current_stage_name %}
+              <div class="muted">
+                Stage
+                {{ (health.session_summary.current_stage_index or 0) + 1 }} /
+                {{ health.session_summary.stage_count }}:
+                {{ health.session_summary.current_stage_name }}
+              </div>
+            {% endif %}
+            {% if health.session_summary.booking_code %}
+              <div class="muted">Code: <code>{{ health.session_summary.booking_code }}</code></div>
+            {% endif %}
+          </div>
+        {% else %}
+          <span class="pill">Idle</span>
+        {% endif %}
+      </dd>
+
       <dt>Recovery pending</dt>
-      <dd>{{ 'Yes (after power loss)' if health.recovery_pending else 'No' }}</dd>
+      <dd>
+        {% if health.recovery_pending %}
+          <span class="pill pill-warn">Yes — needs QR re-scan</span>
+        {% else %}
+          No
+        {% endif %}
+      </dd>
+
       <dt>Cloud sync queue</dt>
       <dd>
         {{ health.cloud_queue_depth }}
