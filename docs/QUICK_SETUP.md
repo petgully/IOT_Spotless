@@ -2,6 +2,11 @@
 
 Simple step-by-step instructions to set up the entire system from scratch.
 
+> **For new booth deployments, use `docs/DEPLOYMENT.md` instead.**
+> It replaces all the manual Pi setup below with one bootstrap command and is
+> the canonical guide non-technical operators should follow. The detailed
+> manual steps below are kept here for reference and troubleshooting.
+
 ---
 
 ## What You Need

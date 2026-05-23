@@ -102,10 +102,11 @@
 
 === SCRIPTS ===
 
-  [DONE] scripts/setup_and_check.sh  — Full Pi setup (Mosquitto, Python env, node check)
+  [DONE] scripts/bootstrap.sh        — One-command Pi setup (canonical, use this)
+  [DONE] scripts/setup_and_check.sh  — Legacy: Mosquitto + Python env + node check
   [DONE] scripts/check_nodes.sh      — Quick ESP32 node status check
-  [DONE] scripts/setup_kiosk.sh      — Kiosk auto-start setup
-  [DONE] scripts/start_kiosk.sh      — Manual kiosk launcher
+  [DONE] scripts/setup_kiosk.sh      — Legacy: Kiosk auto-start setup only
+  [LEGACY] scripts/start_kiosk.sh.legacy  — Old manual launcher (replaced by systemd)
 
 
 === DOCUMENTATION ===

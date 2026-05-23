@@ -334,11 +334,13 @@ raspberry_pi/
 │   └── static/{css,js}/
 │
 └── scripts/
-    ├── setup_and_check.sh  ← First-time Pi setup (Mosquitto, venv, deps)
-    ├── check_nodes.sh      ← Quick ESP32 connectivity check
-    ├── setup_kiosk.sh      ← Kiosk auto-start config
-    ├── start_kiosk.sh      ← Start script
-    └── spotless.service    ← systemd service file
+    ├── bootstrap.sh                  ← One-command Pi setup (recommended)
+    ├── setup_and_check.sh            ← Legacy: Mosquitto + venv only
+    ├── setup_kiosk.sh                ← Legacy: kiosk autostart only
+    ├── check_nodes.sh                ← Quick ESP32 connectivity check
+    ├── spotless-kiosk.service        ← Canonical systemd unit
+    ├── spotless.service.legacy       ← Old unit (kept for reference)
+    └── start_kiosk.sh.legacy         ← Old launcher (kept for reference)
 ```
 
 ---

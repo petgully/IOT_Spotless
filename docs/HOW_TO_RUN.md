@@ -3,6 +3,11 @@
 Step-by-step instructions to set up and run the entire Spotless IoT system
 from scratch: ESP32 nodes, Raspberry Pi master, kiosk UI, and database.
 
+> **Just want to deploy a new booth?** Use the one-command bootstrap instead
+> of following this entire document. See `docs/DEPLOYMENT.md` — it replaces
+> Sections 1, 4, and 6 below with a single `curl` command. The full guide
+> here is kept for reference and troubleshooting.
+
 ---
 
 ## Prerequisites
