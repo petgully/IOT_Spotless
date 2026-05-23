@@ -28,9 +28,23 @@ and identical pin assignments. Only `NODE_ID` and the header comment differ.
 
 ## Workflow — when the user asks to flash a node
 
+### Step 0: First-run prerequisites
+
+Before flashing on a fresh machine, the user needs:
+- Python 3 on PATH and `pip install --user platformio`
+- PowerShell ExecutionPolicy that permits local scripts. If they hit
+  `running scripts is disabled on this system`, tell them to run:
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+  ```
+- For `all`-mode booth deploys, the **Pi's static IP** (assigned during
+  Phase 1 bootstrap) — they pass it as `-MqttBroker`.
+
 ### Step 1: Identify the node(s)
 
-Ask the user which node (1, 2, 3, or "all") if not specified.
+Ask the user which node (1, 2, 3, or "all") if not specified. For `all` mode
+also confirm `-WifiSsid` / `-WifiPassword` / `-MqttBroker` if the booth
+network has changed since the last flash.
 
 ### Step 2: Run the wrapper
 
@@ -86,6 +100,18 @@ The wrapper handles cable-swap prompts automatically:
 | `Upload fails with timeout` | Hold the **BOOT** button on the ESP32 while the upload starts; release after "Connecting..." appears. |
 | `Failed to connect to ESP32-S3` | Try a different USB cable (charge-only cables have no data lines). Try a different USB port. |
 | Wrong node flashed | Each node's `config.h` has a unique `NODE_ID`. The wrapper shows it before flashing — the operator should confirm. |
+
+## Git hygiene — important
+
+`config.h` for each node is **gitignored**. The committed file is
+`config.h.example` (placeholder credentials). The wrapper auto-copies the
+example to `config.h` on first run.
+
+- **Never** suggest `git add esp32_node*/include/config.h` — those values are
+  per-booth and contain WiFi passwords. They must stay local.
+- If the user wants to update the *template* (e.g. add a new `#define` that
+  every booth needs), edit `config.h.example` and explain that operators will
+  pick it up on their next flash.
 
 ## Manual fallback (only if the wrapper fails)
 

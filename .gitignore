@@ -52,6 +52,14 @@ temp/
 .pioenvs/
 .piolibdeps/
 
+# ESP32 per-site config (contains WiFi credentials + Pi static IP).
+# Each node ships with a config.h.example committed; operators copy it to
+# config.h on their machine via tools/flash_node.ps1 (or by hand) and fill
+# in real values that must NEVER be committed.
+esp32_node1/include/config.h
+esp32_node2/include/config.h
+esp32_node3/include/config.h
+
 # Runtime config (created on Pi at runtime)
 .spotless/
 

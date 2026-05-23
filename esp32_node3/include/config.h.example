@@ -2,7 +2,8 @@
  * =============================================================================
  * ESP32 Node 3 - Configuration - Project Spotless
  * =============================================================================
- * IMPORTANT: Edit WiFi and MQTT settings before uploading!
+ * IMPORTANT: Copy this file to config.h, then edit WiFi and MQTT settings
+ * before uploading. tools/flash_node.ps1 will do that for you.
  * 
  * Relay Configuration (7 Relays):
  *   Relay 1: S1 (220V)    - GPIO 9   - No LED link
@@ -28,14 +29,14 @@
 // =============================================================================
 // WiFi Configuration
 // =============================================================================
-#define WIFI_SSID     "ACT-ai_101776422204"    // Change this!
-#define WIFI_PASSWORD "88324738"   // Upated!
+#define WIFI_SSID     "YourWiFiSSID-2G"      // Booth WiFi (2.4 GHz only) - flash_node.ps1 will overwrite
+#define WIFI_PASSWORD "change-me-before-flashing"  // flash_node.ps1 will overwrite
 
 // =============================================================================
 // MQTT Configuration
 // =============================================================================
 // IP address of Raspberry Pi running the MQTT broker
-#define MQTT_BROKER   "192.168.0.16"         // Raspberry Pi IP - Change this!
+#define MQTT_BROKER   "192.168.0.20"        // Pi static IP - flash_node.ps1 will overwrite
 #define MQTT_PORT     1883
 
 // Unique identifier for this ESP32 node

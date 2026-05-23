@@ -119,7 +119,8 @@ function Find-PlatformIO {
     )
 
     foreach ($pattern in $candidates) {
-        $foundItems = Get-Item $pattern -ErrorAction SilentlyContinue
+        # Get-ChildItem handles glob patterns (Python*) reliably; Get-Item does not on all PS versions
+        $foundItems = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue
         if ($foundItems) {
             $found = $foundItems | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             Write-OK "Found pio at: $($found.FullName)"
@@ -142,10 +143,17 @@ function Find-PlatformIO {
         }
     }
 
-    # 4) Not found - offer to install
+    # 4) Not found - offer install guidance
     Write-Fail 'PlatformIO not found.'
     Write-Info 'PlatformIO is required to flash ESP32 firmware.'
-    Write-Info "To install:  pip install --user platformio"
+    if (-not (Get-Command python -ErrorAction SilentlyContinue) -and `
+        -not (Get-Command py     -ErrorAction SilentlyContinue)) {
+        Write-Info 'Step 1: Install Python 3 from https://www.python.org/downloads/'
+        Write-Info '         (Tick "Add python.exe to PATH" in the installer.)'
+        Write-Info 'Step 2: pip install --user platformio'
+    } else {
+        Write-Info 'Run:    pip install --user platformio'
+    }
     Write-Info 'Then re-run this script.'
     return $null
 }
@@ -229,9 +237,18 @@ function Get-Esp32Port {
 function Show-NodeConfig {
     param([int]$NodeNum)
 
-    $configPath = Join-Path $RepoRoot "esp32_node$NodeNum\include\config.h"
+    $configPath  = Join-Path $RepoRoot "esp32_node$NodeNum\include\config.h"
+    $examplePath = Join-Path $RepoRoot "esp32_node$NodeNum\include\config.h.example"
+
+    # config.h is gitignored - auto-restore from the committed template on first use
     if (-not (Test-Path $configPath)) {
-        throw "Config file not found: $configPath"
+        if (Test-Path $examplePath) {
+            Copy-Item $examplePath $configPath
+            Write-Info "Created $configPath from config.h.example (first run on this machine)."
+            Write-Warn 'config.h still has placeholder credentials - pass -WifiSsid/-WifiPassword/-MqttBroker to fill them in.'
+        } else {
+            throw "Neither config.h nor config.h.example exists for node $NodeNum at $configPath"
+        }
     }
 
     $content = Get-Content $configPath -Raw
@@ -269,29 +286,42 @@ function Update-NodeConfig {
     $changed = $false
     $content = Get-Content $Path -Raw
 
+    # Helper: replace the value inside #define KEY "value" without using
+    # the new value as a regex replacement (which would mis-interpret $1, $$, etc.)
+    function Set-Define {
+        param([string]$Source, [string]$Key, [string]$NewValue)
+        $pattern = "(#define\s+$Key\s+`")[^`"]*(`")"
+        $rx = [regex]$pattern
+        $m = $rx.Match($Source)
+        if (-not $m.Success) { return $Source }
+        $before = $Source.Substring(0, $m.Index) + $m.Groups[1].Value
+        $after  = $m.Groups[2].Value + $Source.Substring($m.Index + $m.Length)
+        # Defensive: forbid embedded double quotes in values (would break the C string)
+        if ($NewValue -match '"') {
+            throw "Value for $Key contains a double quote character. ESP32 firmware string literals can't include unescaped quotes."
+        }
+        return $before + $NewValue + $after
+    }
+
     if ($NewSsid) {
-        $content = [regex]::Replace($content,
-            '(#define\s+WIFI_SSID\s+")[^"]*(")',
-            "`${1}$NewSsid`${2}")
+        $content = Set-Define -Source $content -Key 'WIFI_SSID' -NewValue $NewSsid
         Write-OK "Updated WIFI_SSID -> $NewSsid"
         $changed = $true
     }
     if ($NewPassword) {
-        $content = [regex]::Replace($content,
-            '(#define\s+WIFI_PASSWORD\s+")[^"]*(")',
-            "`${1}$NewPassword`${2}")
-        Write-OK 'Updated WIFI_PASSWORD'
+        $content = Set-Define -Source $content -Key 'WIFI_PASSWORD' -NewValue $NewPassword
+        Write-OK 'Updated WIFI_PASSWORD (value not echoed)'
         $changed = $true
     }
     if ($NewBroker) {
-        $content = [regex]::Replace($content,
-            '(#define\s+MQTT_BROKER\s+")[^"]*(")',
-            "`${1}$NewBroker`${2}")
+        $content = Set-Define -Source $content -Key 'MQTT_BROKER' -NewValue $NewBroker
         Write-OK "Updated MQTT_BROKER -> $NewBroker"
         $changed = $true
     }
 
     if ($changed) {
+        Write-Warn "These changes are now on disk in $Path."
+        Write-Info 'config.h is gitignored, so they will not be committed by accident.'
         # Preserve existing line endings; PowerShell defaults to system line endings
         Set-Content -Path $Path -Value $content -NoNewline
     }
@@ -458,6 +488,11 @@ if ($Node -eq 'all') {
         Write-Warn "-Port $Port was supplied but is IGNORED in 'all' mode (each board has its own port)."
     }
 
+    if ($Monitor) {
+        Write-Warn '-Monitor is ignored in all mode (would block between boards). Run individually with -Monitor if needed.'
+        $Monitor = $false
+    }
+
     $results = @{}
     for ($i = 1; $i -le 3; $i++) {
         if ($i -gt 1) {
@@ -469,6 +504,11 @@ if ($Node -eq 'all') {
         # Always re-detect port between nodes (it usually changes); ignore -Port here
         $port = Get-Esp32Port
         if (-not $port) {
+            if ($i -eq 1) {
+                Write-Fail "No ESP32 detected for node 1. Aborting 'all' run."
+                Write-Info 'Plug in node 1 first and re-run.  Or use -Port COMx to override auto-detect.'
+                exit 1
+            }
             Write-Fail "No port detected for node $i - skipping."
             $results[$i] = $false
             continue

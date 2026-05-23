@@ -10,12 +10,27 @@ without learning PlatformIO or COM-port wrangling.
 
 ### Prerequisites (one-time)
 
-1. **Python 3** installed on Windows
+1. **Python 3** from <https://www.python.org/downloads/> — tick
+   *"Add python.exe to PATH"* during install.
 2. **PlatformIO**: `pip install --user platformio`
 3. **USB cable** (data-capable, not charge-only)
 4. **Driver**: ESP32-S3 native USB works without drivers on Win 10+. For
    older boards using CP210x, install
    <https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers>
+5. **PowerShell ExecutionPolicy** — by default Windows blocks unsigned
+   scripts. Run this once per machine (in any PowerShell window):
+
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+   ```
+
+   Or, for a single invocation without changing your policy:
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File .\tools\flash_node.ps1 1
+   ```
+
+6. **PowerShell version**: works on PowerShell 5.1 (built into Windows 10/11)
+   and PowerShell 7+. No version-specific flags.
 
 ### Quick usage
 
@@ -43,7 +58,31 @@ MQTT broker IP without manually editing `config.h`:
 ```
 
 This patches each node's `config.h` (same WIFI/MQTT for all 3 — only `NODE_ID`
-remains different) and flashes them in sequence.
+remains different) and flashes them in sequence. Only the flags you supply
+get patched; omitted values stay as-is in `config.h`.
+
+> **`config.h` is gitignored.** Each node ships with a committed
+> `config.h.example` containing placeholder credentials. The wrapper auto-copies
+> it to `config.h` on first run. Real WiFi passwords and per-booth Pi IPs you
+> flash never get committed back to the repo.
+
+### Multi-booth deployment
+
+When you deploy to Booth 2 (or 3, 4...), you'll have different WiFi and a
+different Pi IP. Each `flash_node.ps1` run **fully overwrites** the previous
+values for the flags you pass, so just re-run with the new booth's settings:
+
+```powershell
+# Booth 1 (Pi at .20)
+.\tools\flash_node.ps1 all -WifiSsid "Booth1WiFi" -WifiPassword "..." -MqttBroker "192.168.0.20" -Yes
+
+# Later: Booth 2 (Pi at .21)
+.\tools\flash_node.ps1 all -WifiSsid "Booth2WiFi" -WifiPassword "..." -MqttBroker "192.168.0.21" -Yes
+```
+
+`config.h` on your laptop will hold whatever you flashed last. Since it's
+gitignored, this is safe — you can never accidentally commit Booth 2's
+credentials over Booth 1's templates.
 
 ### Override auto-detection
 
@@ -93,7 +132,9 @@ For **fully unattended** runs (CI, scripted deployment), you must pass:
 
 | Problem | Fix |
 |---|---|
+| `... cannot be loaded because running scripts is disabled on this system` | Run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once, then re-run. |
 | `pio not found` | Run `pip install --user platformio`. The script will find it on retry. |
+| `python is not recognized` | Install Python 3 from python.org and tick "Add python.exe to PATH". |
 | `Multiple COM ports found, none clearly an ESP32` | Plug in the ESP32 and re-run, or pass `-Port COMx` explicitly. Bluetooth virtual COM ports trip auto-detection. |
 | `Upload fails with timeout` | Hold the **BOOT** button on the ESP32 while the upload starts; release after "Connecting..." appears. |
 | `A fatal error occurred: Failed to connect to ESP32-S3` | Try a different USB cable. Some cables are charge-only and have no data lines. |
