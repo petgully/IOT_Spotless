@@ -1,33 +1,40 @@
-Phase 2a: Windows ESP32 flash wrapper (tools/flash_node.ps1)
+Phase 3: operator admin web UI at /admin (config editor + system health)
 
-One-command ESP32-S3 flashing for non-technical operators on Windows.
-Replaces the manual "edit config.h, find PlatformIO PATH, detect COM port,
-cd into node dir, run pio" sequence with:
+Booth managers can now change shampoo/water/dryer timings, geyser schedule,
+and roof-light window from a phone or laptop instead of editing JSON on the
+Pi. Mounted into the existing kiosk Flask app, gated behind HTTP Basic Auth
+using SPOTLESS_ADMIN_PASSWORD from .env.
 
-    .\tools\flash_node.ps1 1                # flash node 1
-    .\tools\flash_node.ps1 all              # flash all 3 (prompts to swap USB)
-    .\tools\flash_node.ps1 all -WifiSsid X -WifiPassword Y -MqttBroker Z   # site setup
-    .\tools\flash_node.ps1 -Check           # toolchain sanity check
+New: raspberry_pi/admin/
+- operator_auth.py - constant-time password check; default-password warning
+- operator_validators.py - bounds + HH:MM checks (no bad values reach disk)
+- operator_routes.py - Flask Blueprint with /admin/, /admin/settings,
+  per-section form POSTs, JSON API mirror, and unauthenticated /admin/healthz
+- operator_templates/ - dark-themed dashboard + settings UI (mobile-friendly)
+- operator_static/ - self-contained CSS, no CDNs
 
-Wrapper features:
-- Auto-locates pio.exe regardless of where Python is installed
-  (PATH -> ~/.platformio/penv -> %APPDATA%/Python/Python*/Scripts -> ...).
-  No more hardcoded Python313 path in the agent skill.
-- Auto-detects ESP32 COM port; filters out Bluetooth virtual ports.
-  Pre-validates user-supplied -Port against actual present ports.
-- Reads + displays config.h (NODE_ID / WIFI_SSID / MQTT_BROKER, masked
-  password) before flashing so the operator confirms intent.
-- Optional in-place patching of WiFi/MQTT settings via flags
-  (uses [regex]::Replace with proper capture-group escaping).
-- 'all' mode prints the physical role of each board (Container 1 / 2 /
-  Bath line) in the swap prompt so identical-looking PCBs aren't
-  cross-flashed.
-- 'all' mode always re-detects COM port between boards (the port almost
-  always changes); -Port is intentionally ignored there.
-- -Check returns exit 1 if no ESP32 is detected (was incorrectly 0).
-- ASCII-only output (works in PS 5.1 default ANSI encoding without BOM).
+Hot-reload plumbing so admin saves apply without restarting the kiosk:
+- config_manager.py: atomic save (temp + os.replace), reload() helper, and
+  _save_to_local now raises on disk failure so callers can surface real
+  errors instead of silently flashing "saved".
+- kiosk/web_server.py: _profile_overrides() force-reloads from disk on
+  every QR scan so the next session uses the operator's new timings.
+- geyser_controller.py + roof_light_controller.py: apply_config() updates
+  scheduler attributes in place; in-progress cycles finish on old values,
+  next cycle uses new ones.
 
-Companion docs:
-- tools/README.md: full operator usage guide.
-- .cursor/skills/flash-esp32/SKILL.md: rewritten to invoke the wrapper as
-  the primary path; manual pio fallback no longer hardcodes a Python path.
+Operator UX:
+- Save errors (full SD card, permission issue) now show as a red flash
+  message with the actual exception text - no more silently flashing OK.
+- Default-password banner warns operators they're still on spotless-admin.
+- Form submissions use PRG (303 redirect) with anchor jumps so the page
+  scrolls back to the section the operator just saved.
+
+Existing /admin relay-test dashboard on :8080 (admin_server.py) is left
+untouched - different blueprint, different folders, zero collision.
+
+Docs:
+- DEPLOYMENT.md: dedicated /admin section, day-to-day ops table updated to
+  point at the web UI instead of JSON editing, Phase 3 marked Done.
+- bootstrap.sh print_summary now prints the Admin URL after first boot.
+- .env.example explains SPOTLESS_ADMIN_PASSWORD purpose and rotation.

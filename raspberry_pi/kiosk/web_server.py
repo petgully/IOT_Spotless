@@ -74,6 +74,22 @@ def create_app(spotless_app=None):
             emit=lambda event, data: socketio.emit(event, data),
         )
 
+    # Mount the operator admin blueprint at /admin/*. Best-effort — a missing
+    # admin module must not stop the kiosk from starting in production, but
+    # should still surface in the logs.
+    try:
+        from admin.operator_routes import attach as attach_admin
+        cfg_mgr = (
+            spotless_app.config_mgr if spotless_app
+            else _session_runner.config_mgr
+        )
+        admin_bp = attach_admin(spotless_app, cfg_mgr)
+        if "operator_admin" not in app.blueprints:
+            app.register_blueprint(admin_bp)
+            logger.info("Operator admin mounted at /admin")
+    except Exception as e:
+        logger.error(f"Failed to mount operator admin blueprint: {e}")
+
     return app
 
 
@@ -86,9 +102,16 @@ def _machine_id() -> str:
 
 
 def _profile_overrides():
-    """Hand build_session() the live A/B timing values from config.json."""
+    """Hand build_session() the live A/B timing values from config.json.
+
+    We force-reload from disk on every QR scan so that admin UI saves (or
+    manual JSON edits) take effect on the very next session — no service
+    restart needed. The cost is a few-millisecond JSON parse per scan, which
+    is negligible compared to MQTT round-trips.
+    """
     if _spotless_app and _spotless_app.config_mgr:
         try:
+            _spotless_app.config_mgr.reload()
             return _spotless_app.config_mgr.get_size_profile_overrides()
         except Exception as e:
             logger.warning(f"profile_overrides fetch failed: {e}")

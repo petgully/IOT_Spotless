@@ -723,6 +723,7 @@ print_summary() {
     echo -e "  ${BOLD}Machine ID:${NC}     ${MACHINE_ID}"
     echo -e "  ${BOLD}IP address:${NC}     ${final_ip}"
     echo -e "  ${BOLD}Kiosk URL:${NC}      http://${final_ip}:${KIOSK_PORT}"
+    echo -e "  ${BOLD}Admin URL:${NC}      http://${final_ip}:${KIOSK_PORT}/admin   (user: admin)"
     echo -e "  ${BOLD}Repo path:${NC}      ${REPO_DIR}"
     echo -e "  ${BOLD}Config file:${NC}    ${CONFIG_DIR}/config.json"
     echo -e "  ${BOLD}Env file:${NC}       ${PI_DIR}/.env"

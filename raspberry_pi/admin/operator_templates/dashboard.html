@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<section class="grid grid-3">
+  <div class="card">
+    <h2>This booth</h2>
+    <dl class="kv">
+      <dt>Machine ID</dt>      <dd>{{ settings.machine.machine_id or '—' }}</dd>
+      <dt>Machine name</dt>    <dd>{{ settings.machine.machine_name or '—' }}</dd>
+      <dt>Location</dt>        <dd>{{ settings.machine.location or '—' }}</dd>
+      <dt>Config saved</dt>    <dd>{{ settings.machine.updated_at or '—' }}</dd>
+    </dl>
+    <a class="btn btn-primary" href="{{ url_for('operator_admin.settings_page') }}#machine">Edit</a>
+  </div>
+
+  <div class="card">
+    <h2>System health</h2>
+    <dl class="kv">
+      <dt>ESP32 nodes online</dt>
+      <dd>
+        <span class="pill pill-{{ 'ok' if health.nodes_online == health.nodes_total else 'warn' }}">
+          {{ health.nodes_online }} / {{ health.nodes_total }}
+        </span>
+      </dd>
+      <dt>Session active</dt>
+      <dd>{{ 'Yes — ' ~ health.current_session if health.session_active else 'No' }}</dd>
+      <dt>Recovery pending</dt>
+      <dd>{{ 'Yes (after power loss)' if health.recovery_pending else 'No' }}</dd>
+      <dt>Cloud sync queue</dt>
+      <dd>
+        {{ health.cloud_queue_depth }}
+        {% if health.cloud_degraded %}<span class="pill pill-warn">degraded</span>{% endif %}
+      </dd>
+      <dt>Geyser</dt>          <dd>{{ 'Heating' if health.geyser_heating else 'Idle' }}</dd>
+      <dt>Roof light</dt>      <dd>{{ 'On' if health.roof_light_on else 'Off' }}</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>What you can change here</h2>
+    <ul class="bullet">
+      <li>Bath timings — shampoo, water, dryer, etc. (per pet size)</li>
+      <li>Geyser preheat schedule and safety cutoff</li>
+      <li>Evening roof-light window</li>
+      <li>Booth display name and location</li>
+    </ul>
+    <p class="muted">
+      Changes take effect on the <strong>next QR scan</strong>. A bath that's
+      already running keeps its current timings.
+    </p>
+    <a class="btn btn-primary" href="{{ url_for('operator_admin.settings_page') }}">Open settings</a>
+  </div>
+</section>
+
+<section class="grid grid-2">
+  <div class="card">
+    <h2>Current bath timings — SET A (small / medium / large)</h2>
+    <table class="data">
+      <thead><tr><th>Stage</th><th class="right">Seconds</th></tr></thead>
+      <tbody>
+        {% for field, label, _lo, _hi in size_profile_fields %}
+          {% if field in settings.profile_a %}
+            <tr><td>{{ label }}</td><td class="right">{{ settings.profile_a[field] }}</td></tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Current bath timings — SET B (XL)</h2>
+    <table class="data">
+      <thead><tr><th>Stage</th><th class="right">Seconds</th></tr></thead>
+      <tbody>
+        {% for field, label, _lo, _hi in size_profile_fields %}
+          {% if field in settings.profile_b %}
+            <tr><td>{{ label }}</td><td class="right">{{ settings.profile_b[field] }}</td></tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="grid grid-2">
+  <div class="card">
+    <h2>Geyser</h2>
+    <dl class="kv">
+      <dt>Morning preheat</dt> <dd>{{ settings.geyser.morning_preheat_time }}</dd>
+      <dt>Heat duration</dt>   <dd>{{ settings.geyser.heat_duration_sec }} s</dd>
+      <dt>Safety cutoff</dt>   <dd>{{ settings.geyser.safety_cutoff_sec }} s</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h2>Roof light</h2>
+    <dl class="kv">
+      <dt>Evening ON</dt>  <dd>{{ settings.roof_light.evening_on_time }}</dd>
+      <dt>Evening OFF</dt> <dd>{{ settings.roof_light.evening_off_time }}</dd>
+    </dl>
+  </div>
+</section>
+{% endblock %}

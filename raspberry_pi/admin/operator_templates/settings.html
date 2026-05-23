@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% macro number_field(name, label, value, lo, hi) %}
+  <label class="field">
+    <span class="field-label">{{ label }}</span>
+    <input type="number"
+           name="{{ name }}"
+           value="{{ value if value is not none else '' }}"
+           min="{{ lo }}"
+           max="{{ hi }}"
+           step="1"
+           required>
+    <span class="field-hint">{{ lo }}-{{ hi }}</span>
+  </label>
+{% endmacro %}
+
+{% macro time_field(name, label, value) %}
+  <label class="field">
+    <span class="field-label">{{ label }}</span>
+    <input type="time" name="{{ name }}" value="{{ value }}" required>
+  </label>
+{% endmacro %}
+
+{% block content %}
+<p class="muted">
+  Changes save to <code>~/.spotless/config.json</code> and take effect on the
+  <strong>next QR scan</strong>. A session in progress keeps its current
+  timings until it finishes.
+</p>
+
+<section id="machine" class="card">
+  <h2>Booth identity</h2>
+  <form method="post" action="{{ url_for('operator_admin.save_machine_info') }}" class="form-grid">
+    <label class="field">
+      <span class="field-label">Machine ID</span>
+      <input type="text" value="{{ settings.machine.machine_id }}" disabled>
+      <span class="field-hint">Locked — set during bootstrap.</span>
+    </label>
+    <label class="field">
+      <span class="field-label">Machine name</span>
+      <input type="text" name="machine_name" value="{{ settings.machine.machine_name }}" maxlength="64" required>
+    </label>
+    <label class="field field-wide">
+      <span class="field-label">Location</span>
+      <input type="text" name="location" value="{{ settings.machine.location }}" maxlength="128">
+    </label>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save booth info</button>
+    </div>
+  </form>
+</section>
+
+{% for key, profile, anchor in [('A', settings.profile_a, 'profile-a'), ('B', settings.profile_b, 'profile-b')] %}
+<section id="{{ anchor }}" class="card">
+  <h2>Bath timings — SET {{ key }}{% if key == 'A' %} (small / medium / large){% else %} (XL){% endif %}</h2>
+  <p class="muted">All values in seconds.</p>
+  <form method="post" action="{{ url_for('operator_admin.save_profile', profile_key=key) }}" class="form-grid form-grid-3">
+    {% for field, label, lo, hi in size_profile_fields %}
+      {{ number_field(field, label, profile.get(field), lo, hi) }}
+    {% endfor %}
+    <div class="form-actions form-actions-wide">
+      <button type="submit" class="btn btn-primary">Save SET {{ key }}</button>
+    </div>
+  </form>
+</section>
+{% endfor %}
+
+<section id="geyser" class="card">
+  <h2>Geyser</h2>
+  <p class="muted">
+    Pre-heats the water in the morning and re-heats after every session.
+    The safety cutoff guards against the heater being stuck on.
+  </p>
+  <form method="post" action="{{ url_for('operator_admin.save_geyser') }}" class="form-grid form-grid-3">
+    {{ time_field('morning_preheat_time', 'Morning preheat (HH:MM)', settings.geyser.morning_preheat_time) }}
+    {{ number_field('heat_duration_sec', 'Heat duration (s)', settings.geyser.heat_duration_sec, 60, 3600) }}
+    {{ number_field('safety_cutoff_sec', 'Safety cutoff (s)', settings.geyser.safety_cutoff_sec, 60, 7200) }}
+    <div class="form-actions form-actions-wide">
+      <button type="submit" class="btn btn-primary">Save geyser</button>
+    </div>
+  </form>
+</section>
+
+<section id="roof" class="card">
+  <h2>Roof light — evening schedule</h2>
+  <p class="muted">
+    The roof light comes on automatically during a session. Outside session
+    time it follows this evening window.
+  </p>
+  <form method="post" action="{{ url_for('operator_admin.save_roof_light') }}" class="form-grid form-grid-2">
+    {{ time_field('evening_on_time',  'Evening ON',  settings.roof_light.evening_on_time) }}
+    {{ time_field('evening_off_time', 'Evening OFF', settings.roof_light.evening_off_time) }}
+    <div class="form-actions form-actions-wide">
+      <button type="submit" class="btn btn-primary">Save roof light</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

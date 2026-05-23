@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Spotless Admin{% endblock %} — {{ settings.machine.machine_name or 'Spotless' }}</title>
+  <link rel="stylesheet" href="{{ url_for('operator_admin.static', filename='css/operator.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">SPOTLESS</span>
+      <span class="role">Admin</span>
+    </div>
+    <nav class="nav">
+      <a href="{{ url_for('operator_admin.dashboard') }}" class="{% if request.endpoint == 'operator_admin.dashboard' %}active{% endif %}">Dashboard</a>
+      <a href="{{ url_for('operator_admin.settings_page') }}" class="{% if request.endpoint == 'operator_admin.settings_page' %}active{% endif %}">Settings</a>
+      <a href="/" target="_blank" rel="noopener">Open kiosk</a>
+    </nav>
+    <div class="machine">
+      <span class="machine-id">{{ settings.machine.machine_id or 'no-id' }}</span>
+      <span class="machine-name">{{ settings.machine.machine_name }}</span>
+    </div>
+  </header>
+
+  {% if using_default_password %}
+  <div class="banner banner-warn">
+    You are using the default admin password. Set <code>SPOTLESS_ADMIN_PASSWORD</code>
+    in <code>raspberry_pi/.env</code> and restart the kiosk service.
+  </div>
+  {% endif %}
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="flash-stack">
+        {% for kind, msg in messages %}
+          <div class="flash flash-{{ kind }}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>{{ settings.machine.machine_name }} ({{ settings.machine.machine_id }})</span>
+    <span>Config last saved: {{ settings.machine.updated_at or '—' }}</span>
+    <span>Source: {{ settings.machine.config_source }}</span>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -145,7 +145,8 @@ Full options, prerequisites (Python + PlatformIO), and troubleshooting are in
 
 | Task | How |
 |---|---|
-| **Change shampoo / water / dryer time** | Edit `/home/spotless/.spotless/config.json` (changes take effect on the next session — no restart needed). Phase 3 will add a web UI for this so you don't have to edit JSON. |
+| **Change shampoo / water / dryer time** | Open `http://<pi-ip>:5000/admin` in any browser, log in (user `admin`, password from `.env`), edit "Bath timings — SET A / SET B", click Save. Changes apply on the next QR scan. |
+| **Change geyser / roof-light schedule** | Same admin page, "Geyser" and "Roof light" sections. Hot-reloads instantly — no restart needed. |
 | **See live logs** | `journalctl -u spotless-kiosk -f` |
 | **Restart the kiosk** | `sudo systemctl restart spotless-kiosk` |
 | **Stop the kiosk** | `sudo systemctl stop spotless-kiosk` |
@@ -155,6 +156,35 @@ Full options, prerequisites (Python + PlatformIO), and troubleshooting are in
 | **Change DB / API key / admin password** | Edit `/home/spotless/IOT_Spotless/raspberry_pi/.env` then restart the service |
 
 ---
+
+## Admin web UI (`/admin`)
+
+Every booth's kiosk also serves a password-protected admin page on the same
+port the kiosk uses. From any laptop or phone on the same network:
+
+1. Open `http://<pi-ip>:5000/admin` (e.g. `http://192.168.0.20:5000/admin`).
+2. Browser prompts for credentials. User: `admin`. Password: whatever you set
+   for `SPOTLESS_ADMIN_PASSWORD` in `raspberry_pi/.env` during bootstrap
+   (default `spotless-admin` — **change this in production**).
+3. The dashboard shows live booth health (nodes online, current session,
+   geyser state, cloud queue) and current settings.
+4. Click **Settings** to edit:
+   - Booth name and location
+   - Bath timings for SET A (small / medium / large) and SET B (XL)
+   - Geyser preheat schedule + safety cutoff
+   - Roof-light evening window
+5. Save — the next QR scan picks up new bath timings; geyser/roof changes
+   apply instantly without a service restart.
+
+To use the same admin login on multiple booths, set the same
+`SPOTLESS_ADMIN_PASSWORD` in each booth's `.env`. Each booth still serves
+its own page at its own IP — there is no central inventory by design.
+
+To rotate the password:
+```bash
+sudo -u spotless nano /home/spotless/IOT_Spotless/raspberry_pi/.env
+sudo systemctl restart spotless-kiosk
+```
 
 ## Manless-mode behaviour (what happens when…)
 
@@ -220,8 +250,8 @@ python3 test_db_connection.py
 | **Phase 1** — bootstrap.sh | ✅ Done | One-command Pi setup |
 | **Phase 2a** — `flash_node.ps1` wrapper | ✅ Done | One-command ESP32 flash from Windows laptop |
 | **Phase 2b** — Captive-portal WiFi for ESP32 | Planned (when you have ≥2 booths) | No more `config.h` edits per site |
-| **Phase 3** — `/admin` web UI | Planned | Edit shampoo/water times via a webpage instead of editing JSON |
-| **Phase 4** — Watchdog + `/healthz` | Planned | systemd kills + restarts Flask if it hangs (today: only restarts on crash) |
+| **Phase 3** — `/admin` web UI | ✅ Done | Edit shampoo/water/geyser/roof-light settings without editing JSON |
+| **Phase 4** — Watchdog + `/healthz` | Partial (`/admin/healthz` exposed) | systemd kills + restarts Flask if it hangs (today: only restarts on crash) |
 
 ---
 

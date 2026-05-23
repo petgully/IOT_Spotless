@@ -116,6 +116,42 @@ class GeyserController:
         self._cancel_timers()
         self.start_heating()
 
+    def apply_config(self, config: Dict):
+        """Hot-reload settings without restarting the controller.
+
+        Used by the admin UI when an operator changes geyser timings via the
+        web form. Updates the scheduler-loop attributes on the next minute
+        tick. Does not interrupt an in-progress heat cycle (those finish on
+        their already-scheduled timer); next cycle uses the new values.
+        """
+        if config is None:
+            return
+        new_morning = config.get("morning_preheat_time", self.morning_time)
+        new_heat    = config.get("heat_duration_sec",    self.heat_duration)
+        new_safety  = config.get("safety_cutoff_sec",    self.safety_cutoff)
+        if (new_morning != self.morning_time
+                or new_heat != self.heat_duration
+                or new_safety != self.safety_cutoff):
+            logger.info(
+                f"Geyser config reload: morning {self.morning_time}->{new_morning}, "
+                f"heat {self.heat_duration}->{new_heat}s, "
+                f"safety {self.safety_cutoff}->{new_safety}s"
+            )
+        self.morning_time = new_morning
+        self.heat_duration = new_heat
+        self.safety_cutoff = new_safety
+        # If morning fired today and the operator pushes the time forward to
+        # later in the day, allow the new time to fire today.
+        self._morning_fired_today = self._morning_fired_today and self._already_past_today(self.morning_time)
+
+    def _already_past_today(self, hhmm: str) -> bool:
+        try:
+            h, m = (int(x) for x in hhmm.split(":"))
+        except (ValueError, IndexError):
+            return True
+        now = datetime.now()
+        return (now.hour, now.minute) > (h, m)
+
     @property
     def is_heating(self) -> bool:
         return self._heating

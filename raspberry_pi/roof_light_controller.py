@@ -106,6 +106,25 @@ class RoofLightController:
         self._set_light(should_be_on)
         self._current_state = should_be_on
 
+    def apply_config(self, config: Dict):
+        """Hot-reload window times without restarting the controller.
+
+        Used by the admin UI; calls update() so any change takes effect
+        immediately (light flips on/off if the new window now applies).
+        """
+        if config is None:
+            return
+        new_on  = config.get("evening_on_time",  self.evening_on)
+        new_off = config.get("evening_off_time", self.evening_off)
+        if new_on != self.evening_on or new_off != self.evening_off:
+            logger.info(
+                f"Roof light config reload: window "
+                f"{self.evening_on}-{self.evening_off} -> {new_on}-{new_off}"
+            )
+        self.evening_on = new_on
+        self.evening_off = new_off
+        self.update()
+
     @property
     def is_on(self) -> bool:
         return self._current_state

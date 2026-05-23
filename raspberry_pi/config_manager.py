@@ -232,13 +232,39 @@ class ConfigManager:
             return None
 
     def _save_to_local(self, config: Dict):
+        """Atomic write: temp file + os.replace.
+
+        Power loss mid-write can otherwise leave config.json half-written and
+        unparseable, which would refuse to start the kiosk on next boot.
+
+        Raises OSError (or subclass) on failure so callers — notably the
+        admin UI — can surface a real error to the operator instead of
+        silently flashing "saved" while the disk write blew up.
+        """
+        config["updated_at"] = datetime.now().isoformat()
+        tmp_path = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
         try:
-            config["updated_at"] = datetime.now().isoformat()
-            with open(CONFIG_FILE, "w") as f:
+            with open(tmp_path, "w") as f:
                 json.dump(config, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, CONFIG_FILE)
             logger.info(f"Saved config to {CONFIG_FILE}")
-        except Exception as e:
-            logger.error(f"Error saving local config: {e}")
+        except Exception:
+            logger.exception("Error saving local config")
+            try:
+                tmp_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            raise
+
+    def reload(self) -> Dict:
+        """Force-reread config.json from disk. Returns the freshly loaded dict.
+
+        Use after an out-of-band edit to config.json (admin UI, manual edit)
+        so subsequent reads see the new values without restarting the service.
+        """
+        return self.load_config(force_reload=True)
 
     # =========================================================================
     # Size profile access (contract §6.1)
