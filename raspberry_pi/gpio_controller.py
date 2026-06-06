@@ -101,14 +101,24 @@ GPIO_PINS = {
     "rglight": 24,  # Red/Green Indicator Light - GPIO 24
 }
 
-# Relay active state. The HAT drives each relay through an NPN transistor
-# (base HIGH -> relay ON), so these relays are ACTIVE-HIGH.
-GPIO_ACTIVE_STATE = True  # True = Active HIGH, False = Active LOW
+# Relay active state. Most channels are driven through an NPN transistor
+# (base HIGH -> relay ON) and are therefore ACTIVE-HIGH.
+GPIO_ACTIVE_STATE = True  # default for relays NOT listed in GPIO_ACTIVE_LOW
+
+# Per-relay overrides: these channels are wired ACTIVE-LOW (relay ON when the
+# pin is LOW). They were observed energised at boot and inverted vs the rest,
+# so we drive them the opposite way to the default.
+GPIO_ACTIVE_LOW = {"dry", "geyser", "roof"}
 
 
-def _physical_high(state: bool) -> bool:
-    """Map a logical ON/OFF to the physical pin level given active state."""
-    return state if GPIO_ACTIVE_STATE else (not state)
+def _relay_active_high(name: str) -> bool:
+    """Effective active-high flag for a single relay (honours overrides)."""
+    return (not GPIO_ACTIVE_STATE) if name in GPIO_ACTIVE_LOW else GPIO_ACTIVE_STATE
+
+
+def _physical_high(name: str, state: bool) -> bool:
+    """Map a relay's logical ON/OFF to the physical pin level."""
+    return state if _relay_active_high(name) else (not state)
 
 
 # =============================================================================
@@ -246,13 +256,14 @@ class GPIOController:
         if not self.chip_path:
             raise RuntimeError("no /dev/gpiochip* device found")
 
-        off_value = _V2_Value.ACTIVE if not _physical_high(False) else _V2_Value.INACTIVE
-        # Build one request for all relay pins, initialised to OFF.
+        # Build one request for all relay pins, each initialised to its own
+        # physical OFF level (active-low channels idle HIGH, others idle LOW).
         config = {}
         for name, pin in GPIO_PINS.items():
+            off_high = _physical_high(name, False)
             config[pin] = gpiod.LineSettings(
                 direction=_V2_Direction.OUTPUT,
-                output_value=off_value,
+                output_value=_V2_Value.ACTIVE if off_high else _V2_Value.INACTIVE,
             )
 
         if hasattr(gpiod, "request_lines"):
@@ -264,15 +275,16 @@ class GPIOController:
             self._request = chip.request_lines(consumer="spotless_gpio", config=config)
 
         for name, pin in GPIO_PINS.items():
-            self._relays[name] = GPIORelay(name, pin, self._make_v2_writer(pin))
-            logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF")
+            self._relays[name] = GPIORelay(name, pin, self._make_v2_writer(name, pin))
+            logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF"
+                        f"{' (active-low)' if name in GPIO_ACTIVE_LOW else ''}")
 
         self.backend = "gpiod-v2"
         return True
 
-    def _make_v2_writer(self, pin: int) -> Callable[[bool], bool]:
+    def _make_v2_writer(self, name: str, pin: int) -> Callable[[bool], bool]:
         def _write(state: bool) -> bool:
-            value = _V2_Value.ACTIVE if _physical_high(state) else _V2_Value.INACTIVE
+            value = _V2_Value.ACTIVE if _physical_high(name, state) else _V2_Value.INACTIVE
             self._request.set_value(pin, value)
             return True
         return _write
@@ -283,17 +295,17 @@ class GPIOController:
         self._chip = gpiod.Chip(self.chip_path)
         logger.info(f"Opened GPIO chip: {self.chip_path}")
 
-        initial_value = 1 if _physical_high(False) else 0
         any_ok = False
         for name, pin in GPIO_PINS.items():
             try:
                 line = self._chip.get_line(pin)
                 line.request(consumer="spotless_gpio", type=gpiod.LINE_REQ_DIR_OUT)
-                line.set_value(initial_value)
+                line.set_value(1 if _physical_high(name, False) else 0)
                 self._lines[name] = line
-                self._relays[name] = GPIORelay(name, pin, self._make_v1_writer(line))
+                self._relays[name] = GPIORelay(name, pin, self._make_v1_writer(name, line))
                 any_ok = True
-                logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF")
+                logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF"
+                            f"{' (active-low)' if name in GPIO_ACTIVE_LOW else ''}")
             except Exception as e:
                 logger.error(f"  Failed to initialize GPIO {name} (pin {pin}): {e}")
                 self._relays[name] = GPIORelay(name, pin, None)
@@ -301,9 +313,9 @@ class GPIOController:
         self.backend = "gpiod-v1"
         return any_ok
 
-    def _make_v1_writer(self, line) -> Callable[[bool], bool]:
+    def _make_v1_writer(self, name: str, line) -> Callable[[bool], bool]:
         def _write(state: bool) -> bool:
-            line.set_value(1 if _physical_high(state) else 0)
+            line.set_value(1 if _physical_high(name, state) else 0)
             return True
         return _write
 
