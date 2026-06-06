@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Equipment self-test{% endblock %}
+
+{% block content %}
+<style>
+  .selftest-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .selftest-status { font-size: 1.05rem; }
+  .selftest-status .muted { font-weight: 400; }
+  .progress-track { height: 10px; background: #e6e9ef; border-radius: 6px; overflow: hidden; margin-top: 10px; }
+  .progress-fill { height: 100%; width: 0%; background: #2e7d32; transition: width .3s ease; }
+  .checklist { list-style: none; margin: 0; padding: 0; }
+  .checklist li {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; margin: 4px 0;
+    background: #f6f7f9; border: 1px solid transparent;
+  }
+  .checklist li .ico { width: 20px; text-align: center; font-weight: 700; color: #9aa0aa; }
+  .checklist li .dev { font-weight: 600; }
+  .checklist li .meta { color: #6b717c; font-size: .85rem; }
+  .checklist li.state-active { background: #fff7e0; border-color: #f0c000; }
+  .checklist li.state-active .ico { color: #b58a00; }
+  .checklist li.state-done { background: #eaf6ea; }
+  .checklist li.state-done .ico { color: #2e7d32; }
+  .checklist li.state-missing { background: #fdeaea; }
+  .checklist li.state-missing .ico { color: #c62828; }
+  .group-head { margin: 16px 0 4px; font-size: .95rem; color: #444; font-weight: 700; }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+</style>
+
+<section class="grid grid-2">
+  <div class="card">
+    <h2>Equipment self-test</h2>
+    <p class="muted">
+      Runs <strong>every device for {{ seconds_each }} seconds</strong>, one at a
+      time — Node 1, then Node 2, then Node 3, and finally the Raspberry Pi
+      GPIO relays. Stand at the booth and confirm each device actually fires.
+    </p>
+
+    <div class="selftest-bar">
+      <button id="btnStart" class="btn btn-primary">Start self-test</button>
+      <button id="btnStop" class="btn" disabled>Stop</button>
+      <span id="conn" class="pill">connecting…</span>
+    </div>
+
+    <div class="selftest-status" style="margin-top:14px;">
+      <div id="statusLine"><span class="muted">Idle — press “Start self-test”.</span></div>
+      <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+      <div id="progressText" class="muted" style="margin-top:6px;">0 / {{ plan|length }}</div>
+    </div>
+
+    <p class="muted" style="margin-top:14px;">
+      Safety: only one session can run at a time. If a bath is in progress this
+      page will refuse to start. You can stop the test at any point.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Test sequence ({{ plan|length }} devices)</h2>
+    {% set ns = namespace(group=None) %}
+    <ul class="checklist">
+      {% for s in plan %}
+        {% if s.group != ns.group %}
+          {% set ns.group = s.group %}
+          <li class="group-head" style="background:none;border:none;padding-left:0;">{{ s.group }}</li>
+        {% endif %}
+        <li id="step-{{ s.device }}" class="step" data-step="{{ s.step }}">
+          <span class="ico">{{ s.step }}</span>
+          <span>
+            <span class="dev">{{ s.label }}</span>
+            <span class="meta">— {{ s.device }}{% if s.relay %} · {{ s.relay }}{% endif %}</span>
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+(function () {
+  const startUrl  = "{{ url_for('operator_admin.api_equipment_test_start') }}";
+  const stopUrl   = "{{ url_for('operator_admin.api_equipment_test_stop') }}";
+  const statusUrl = "{{ url_for('operator_admin.api_equipment_test_status') }}";
+  const total = {{ plan|length }};
+
+  const btnStart   = document.getElementById('btnStart');
+  const btnStop    = document.getElementById('btnStop');
+  const conn       = document.getElementById('conn');
+  const statusLine = document.getElementById('statusLine');
+  const progFill   = document.getElementById('progressFill');
+  const progText   = document.getElementById('progressText');
+
+  function stepEl(device) { return document.getElementById('step-' + device); }
+  function allSteps() { return Array.from(document.querySelectorAll('.checklist li.step')); }
+
+  function resetChecklist() {
+    allSteps().forEach(li => {
+      li.classList.remove('state-active', 'state-done', 'state-missing');
+      li.querySelector('.ico').textContent = li.dataset.step;
+    });
+    progFill.style.width = '0%';
+    progText.textContent = '0 / ' + total;
+  }
+
+  function markDoneUpTo(stepNum) {
+    allSteps().forEach(li => {
+      const n = parseInt(li.dataset.step, 10);
+      if (n < stepNum && !li.classList.contains('state-missing')) {
+        li.classList.remove('state-active');
+        li.classList.add('state-done');
+        li.querySelector('.ico').textContent = '\u2713';
+      }
+    });
+  }
+
+  function setRunningUI(running) {
+    btnStart.disabled = running;
+    btnStop.disabled = !running;
+  }
+
+  function onStep(data) {
+    markDoneUpTo(data.step);
+    const li = stepEl(data.device);
+    if (li) {
+      li.classList.remove('state-done');
+      if (data.found === false) {
+        li.classList.add('state-missing');
+        li.querySelector('.ico').textContent = '!';
+      } else {
+        li.classList.add('state-active');
+        li.querySelector('.ico').textContent = '\u25B6';
+      }
+    }
+    const pct = Math.round(data.step / data.total * 100);
+    progFill.style.width = pct + '%';
+    progText.textContent = data.step + ' / ' + data.total;
+    const warn = data.found === false ? '  (relay not available!)' : '';
+    statusLine.innerHTML = '<strong>' + data.group + '</strong> — ' +
+      data.label + ' <span class="muted">(' + data.duration + 's)</span>' + warn;
+  }
+
+  function finish(msg, ok) {
+    allSteps().forEach(li => {
+      if (li.classList.contains('state-active')) {
+        li.classList.remove('state-active');
+        li.classList.add('state-done');
+        li.querySelector('.ico').textContent = '\u2713';
+      }
+    });
+    setRunningUI(false);
+    statusLine.innerHTML = (ok ? '\u2705 ' : '\u26A0\uFE0F ') + msg;
+    if (ok) { progFill.style.width = '100%'; progText.textContent = total + ' / ' + total; }
+  }
+
+  // --- Socket.IO live feed (same Flask server as the kiosk) ---
+  let socket;
+  try {
+    socket = io();
+    socket.on('connect',    () => { conn.textContent = 'live'; conn.className = 'pill pill-ok'; });
+    socket.on('disconnect', () => { conn.textContent = 'offline'; conn.className = 'pill pill-warn'; });
+    socket.on('selftest_step', onStep);
+    socket.on('selftest_done', () => finish('Self-test finished — all devices were exercised.', true));
+    socket.on('session_complete', () => finish('Self-test complete.', true));
+    socket.on('session_aborted',  (d) => finish('Self-test aborted: ' + ((d && d.reason) || 'stopped'), false));
+    socket.on('session_stopped',  () => finish('Self-test stopped.', false));
+    socket.on('session_error',    (d) => finish('Error: ' + ((d && d.error) || 'unknown'), false));
+  } catch (e) {
+    conn.textContent = 'no live feed';
+    conn.className = 'pill pill-warn';
+  }
+
+  async function post(url) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    let body = {};
+    try { body = await r.json(); } catch (e) {}
+    return { ok: r.ok && body.ok !== false, body };
+  }
+
+  btnStart.addEventListener('click', async () => {
+    resetChecklist();
+    statusLine.innerHTML = '<span class="muted">Starting…</span>';
+    setRunningUI(true);
+    const { ok, body } = await post(startUrl);
+    if (!ok) {
+      setRunningUI(false);
+      statusLine.innerHTML = '\u26A0\uFE0F ' + (body.error || 'Could not start the self-test.');
+    } else {
+      statusLine.innerHTML = '<span class="muted">Running… watch each device fire.</span>';
+    }
+  });
+
+  btnStop.addEventListener('click', async () => {
+    btnStop.disabled = true;
+    const { ok, body } = await post(stopUrl);
+    if (!ok) {
+      btnStop.disabled = false;
+      statusLine.innerHTML = '\u26A0\uFE0F ' + (body.error || 'Could not stop.');
+    }
+  });
+
+  // Initial state + lightweight fallback poll (covers a missed socket event).
+  async function refreshStatus() {
+    try {
+      const r = await fetch(statusUrl);
+      const s = await r.json();
+      setRunningUI(!!s.selftest_running);
+      if (!s.available) {
+        btnStart.disabled = true;
+        statusLine.innerHTML = '<span class="muted">Controller not available on this host.</span>';
+      }
+    } catch (e) { /* ignore */ }
+  }
+  refreshStatus();
+  setInterval(refreshStatus, 5000);
+})();
+</script>
+{% endblock %}

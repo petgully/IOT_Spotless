@@ -298,6 +298,118 @@ def settings_page():
     )
 
 
+@operator_admin_bp.route("/equipment-test")
+@require_admin
+def equipment_test_page():
+    settings = _all_settings()
+    return render_template(
+        "equipment_test.html",
+        settings=settings,
+        using_default_password=is_using_default_password(),
+        plan=_equipment_test_plan(),
+        seconds_each=_equipment_test_seconds(),
+    )
+
+
+# =============================================================================
+# Equipment self-test ("quick check") — runs every device ~5s, node by node,
+# then the Pi-direct GPIO relays. Reuses the existing StageExecutor demo walk
+# via the "equipment_test" session type so there is exactly one code path that
+# drives the hardware.
+# =============================================================================
+
+def _runner():
+    app = _spotless_app()
+    return getattr(app, "runner", None) if app else None
+
+
+def _equipment_test_plan():
+    try:
+        from spotless_controller import build_equipment_test_plan
+        return build_equipment_test_plan()
+    except Exception as e:
+        logger.warning(f"admin: equipment-test plan unavailable: {e}")
+        return []
+
+
+def _equipment_test_seconds() -> int:
+    try:
+        from spotless_controller import EQUIPMENT_TEST_SECONDS
+        return int(EQUIPMENT_TEST_SECONDS)
+    except Exception:
+        return 5
+
+
+def _selftest_running(runner) -> bool:
+    """True only when the currently-active session is the equipment self-test
+    (so we never report someone's real bath as a running self-test)."""
+    if runner is None or not getattr(runner, "is_active", False):
+        return False
+    s = getattr(runner, "current_session", None) or {}
+    return isinstance(s, dict) and s.get("session_type") == "equipment_test"
+
+
+@operator_admin_bp.route("/api/equipment-test/plan", methods=["GET"])
+@require_admin
+def api_equipment_test_plan():
+    return jsonify({
+        "plan": _equipment_test_plan(),
+        "seconds_each": _equipment_test_seconds(),
+    })
+
+
+@operator_admin_bp.route("/api/equipment-test/status", methods=["GET"])
+@require_admin
+def api_equipment_test_status():
+    runner = _runner()
+    session_active = bool(getattr(runner, "is_active", False)) if runner else False
+    return jsonify({
+        "available": runner is not None,
+        "session_active": session_active,
+        "selftest_running": _selftest_running(runner),
+    })
+
+
+@operator_admin_bp.route("/api/equipment-test/start", methods=["POST"])
+@require_admin
+def api_equipment_test_start():
+    runner = _runner()
+    if runner is None:
+        return jsonify({"ok": False,
+                        "error": "Controller not available on this host."}), 503
+    if getattr(runner, "is_active", False):
+        return jsonify({"ok": False,
+                        "error": "A session is already running. "
+                                 "Stop it before starting the self-test."}), 409
+    try:
+        ok = runner.start_test("equipment_test", "ADMIN_SELFTEST")
+    except Exception as e:
+        logger.exception("admin: equipment-test start failed")
+        return jsonify({"ok": False, "error": f"Start failed: {e}"}), 500
+    if not ok:
+        return jsonify({"ok": False,
+                        "error": "Could not start self-test "
+                                 "(another session may be active)."}), 409
+    logger.info("admin: equipment self-test started")
+    return jsonify({"ok": True})
+
+
+@operator_admin_bp.route("/api/equipment-test/stop", methods=["POST"])
+@require_admin
+def api_equipment_test_stop():
+    runner = _runner()
+    if runner is None:
+        return jsonify({"ok": False,
+                        "error": "Controller not available on this host."}), 503
+    try:
+        runner.stop(reason="admin-selftest-stop")
+    except Exception as e:
+        logger.exception("admin: equipment-test stop failed")
+        return jsonify({"ok": False, "error": f"Stop failed: {e}"}), 500
+    logger.info("admin: equipment self-test stopped by operator")
+    return jsonify({"ok": True})
+
+
 # =============================================================================
 # Form POST handlers (HTML browser flow)
 # =============================================================================

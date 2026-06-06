@@ -55,6 +55,71 @@ from typing import Any, Callable, Dict, List, Optional, Set
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# Equipment self-test plan (admin "quick check")
+# =============================================================================
+# Single source of truth for the node-by-node "run every device for N seconds"
+# self-test. Both the executor (_demo_sequence / _equipment_test_sequence) and
+# the operator admin page import this so the on-screen checklist can never
+# drift from what the hardware actually does.
+#
+# Ordering: Node 1 relays, Node 2 relays, Node 3 relays, then Pi-direct GPIO.
+EQUIPMENT_TEST_SECONDS = 5  # seconds each device is held ON
+
+EQUIPMENT_TEST_NODES = [
+    ("Node 1", ["pump", "p1", "d1", "ro2", "ro1", "p2"]),
+    ("Node 2", ["flushmain", "p3", "d2", "ro4", "ro3", "p4"]),
+    ("Node 3", ["s8", "s1", "s5", "s4", "s3", "s2"]),
+]
+EQUIPMENT_TEST_GPIO = ["dry", "roof", "geyser", "top", "bottom", "rglight"]
+
+
+def build_equipment_test_plan() -> List[Dict[str, Any]]:
+    """Return the ordered self-test steps with human-friendly labels.
+
+    Each step: {step, total, group, kind ('mqtt'|'gpio'), device, label,
+    relay}. Labels are pulled from device_map (MQTT relays) and config
+    (Pi GPIO) so they match the rest of the system. Best-effort: if those
+    modules can't be imported the raw device name is used as the label.
+    """
+    try:
+        from device_map import devices as _dm
+    except Exception:
+        _dm = None
+    try:
+        from config import GPIO_RELAYS as _gpio_cfg
+    except Exception:
+        _gpio_cfg = {}
+
+    steps: List[Dict[str, Any]] = []
+    for group, names in EQUIPMENT_TEST_NODES:
+        for name in names:
+            info = _dm.get(name) if _dm else None
+            steps.append({
+                "group": group,
+                "kind": "mqtt",
+                "device": name,
+                "label": info.description if info else name,
+                "relay": (f"Relay {info.relay_num} ({info.relay_label})"
+                          if info else ""),
+            })
+    for name in EQUIPMENT_TEST_GPIO:
+        cfg = _gpio_cfg.get(name, {}) if isinstance(_gpio_cfg, dict) else {}
+        steps.append({
+            "group": "Raspberry Pi GPIO",
+            "kind": "gpio",
+            "device": name,
+            "label": cfg.get("description", name),
+            "relay": (f"GPIO {cfg.get('pin')}" if cfg.get("pin") else ""),
+        })
+
+    total = len(steps)
+    for i, s in enumerate(steps):
+        s["step"] = i + 1
+        s["total"] = total
+    return steps
+
+
+# =============================================================================
 # Audio
 # =============================================================================
 AUDIO_BASE_PATH = os.environ.get(
@@ -638,7 +703,7 @@ class StageExecutor:
                       index: int, total: int, emit: EventCallback) -> None:
         if handler == "test_relays":
             self._test_relays_sequence(index, total, emit)
-        elif handler == "demo":
+        elif handler in ("demo", "equipment_test"):
             self._demo_sequence(index, total, emit)
         else:
             logger.warning(f"Unknown special handler: {handler}")
@@ -686,42 +751,56 @@ class StageExecutor:
 
     def _demo_sequence(self, index: int, total: int,
                        emit: EventCallback) -> None:
-        nodes = {
-            "Node 1": ["pump", "p1", "d1", "ro2", "ro1", "p2"],
-            "Node 2": ["flushmain", "p3", "d2", "ro4", "ro3", "p4"],
-            "Node 3": ["s8", "s1", "s5", "s4", "s3", "s2"],
-        }
-        gpio_demo = ["dry", "roof", "geyser", "top", "bottom", "rglight"]
-        step = 0
-        total_steps = sum(len(v) for v in nodes.values()) + len(gpio_demo)
+        """Node-by-node equipment self-test: hold each relay ON for
+        EQUIPMENT_TEST_SECONDS, then walk the Pi-direct GPIO relays. Drives
+        the admin "quick check" page via per-device `selftest_step` events.
+        """
+        plan = build_equipment_test_plan()
+        total_steps = len(plan)
+        hold = EQUIPMENT_TEST_SECONDS
+        per_step = hold + 0.5  # include the inter-device gap for ETA maths
 
-        for node_label, devices_list in nodes.items():
-            logger.info(f"  --- {node_label} ---")
-            for name in devices_list:
-                if not self._running:
-                    return
-                h = self.devices.get(name) if self.devices else None
-                if h:
-                    h.on()
-                    self._responsive_sleep(5)
-                    h.off()
-                step += 1
-                emit("stage_progress", {
-                    "stage_index": index, "stage_name": "demo",
-                    "progress": int(step / total_steps * 100),
-                    "elapsed": step * 6,
-                    "remaining": (total_steps - step) * 6,
-                    "total_duration": total_steps * 6,
-                })
-                self._responsive_sleep(0.5)
-
-        for gpio_name in gpio_demo:
+        for entry in plan:
             if not self._running:
                 return
-            r = self.gpio.get_relay(gpio_name) if self.gpio else None
-            if r:
-                r.on()
-                self._responsive_sleep(5)
-                r.off()
-            step += 1
+            step = entry["step"]
+            name = entry["device"]
+            kind = entry["kind"]
+            logger.info(
+                f"  [{step}/{total_steps}] {entry['group']}: "
+                f"{name} — {entry['label']}"
+            )
+
+            if kind == "mqtt":
+                handle = self.devices.get(name) if self.devices else None
+            else:
+                handle = self.gpio.get_relay(name) if self.gpio else None
+            found = handle is not None
+
+            # Tell the admin page which device is firing right now.
+            emit("selftest_step", {
+                "step": step, "total": total_steps,
+                "group": entry["group"], "kind": kind,
+                "device": name, "label": entry["label"],
+                "relay": entry.get("relay", ""),
+                "duration": hold, "found": found,
+            })
+            # Keep the generic kiosk progress bar in sync too.
+            emit("stage_progress", {
+                "stage_index": index, "stage_name": "demo",
+                "progress": int(step / total_steps * 100),
+                "elapsed": int(step * per_step),
+                "remaining": int((total_steps - step) * per_step),
+                "total_duration": int(total_steps * per_step),
+            })
+
+            if found:
+                handle.on()
+                self._responsive_sleep(hold)
+                handle.off()
+            else:
+                logger.warning(f"  self-test: device {name!r} not available")
+                self._responsive_sleep(hold)
             self._responsive_sleep(0.5)
+
+        emit("selftest_done", {"total": total_steps})

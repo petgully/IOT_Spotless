@@ -668,6 +668,14 @@ SESSION_STAGES: Dict[str, List[Dict]] = {
                          "testing.png", special_handler="demo"),
         _wallclock_stage("complete", "Demo Complete", 5, "complete.png"),
     ],
+    # Admin "quick check": run every device ~5s, node by node, then Pi GPIO.
+    # Same node-by-node walk as "demo" but operator-labelled and driven from
+    # the /admin/equipment-test page (selftest_step events).
+    "equipment_test": [
+        _wallclock_stage("demo", "Equipment Self-Test", 240,
+                         "testing.png", special_handler="equipment_test"),
+        _wallclock_stage("complete", "Self-Test Complete", 5, "complete.png"),
+    ],
 }
 
 

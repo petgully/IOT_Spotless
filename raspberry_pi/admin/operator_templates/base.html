@@ -15,6 +15,7 @@
     <nav class="nav">
       <a href="{{ url_for('operator_admin.dashboard') }}" class="{% if request.endpoint == 'operator_admin.dashboard' %}active{% endif %}">Dashboard</a>
       <a href="{{ url_for('operator_admin.settings_page') }}" class="{% if request.endpoint == 'operator_admin.settings_page' %}active{% endif %}">Settings</a>
+      <a href="{{ url_for('operator_admin.equipment_test_page') }}" class="{% if request.endpoint == 'operator_admin.equipment_test_page' %}active{% endif %}">Equipment test</a>
       <a href="/" target="_blank" rel="noopener">Open kiosk</a>
     </nav>
     <div class="machine">
