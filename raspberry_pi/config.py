@@ -8,9 +8,10 @@ This is the central configuration file for the Spotless IoT system.
 The Raspberry Pi acts as the master controller, coordinating all ESP32 nodes.
 
 Device Mapping (see device_map.py for details):
-    NODE 1: p1, p2, ro1, ro2, d1, p3, pump
-    NODE 2: p4, p5, ro3, ro4, d2, s7, s9
-    NODE 3: s1, s2, s3, s4, s5, s6, s8
+    NODE 1: pump, p1, d1, ro2, ro1, p2          (Relay 7 / BACK2 unused)
+    NODE 2: flushmain, p3, d2, ro4, ro3, p4     (Relay 7 / BACK2 unused)
+    NODE 3: s8, s1, s5, s4, s3, s2              (Relay 7 / BACK2 unused)
+    Pi GPIO: dry, roof, geyser, top, bottom, rglight
 
 Relay Configuration (7 Relays per Node):
     Relay 1: S1 (220V)    - GPIO 9   - 220V Solenoid
@@ -19,7 +20,7 @@ Relay Configuration (7 Relays per Node):
     Relay 4: RS1&DS2      - GPIO 12  - RO Solenoid 1 & Diaphragm Solenoid 2
     Relay 5: RS2&DS1      - GPIO 13  - RO Solenoid 2 & Diaphragm Solenoid 1
     Relay 6: BACK1        - GPIO 14  - Backflow 1
-    Relay 7: BACK2        - GPIO 21  - Backflow 2
+    Relay 7: BACK2        - GPIO 21  - RETIRED (faulty relay channel; unused)
 =============================================================================
 """
 
@@ -65,17 +66,17 @@ NODES = {
     NODE_1: {
         "name": "ESP32 Node 1",
         "relay_count": 7,
-        "description": "Spotless Node 1 - p1, p2, ro1, ro2, d1, p3, pump"
+        "description": "Spotless Node 1 - pump, p1, d1, ro2, ro1, p2 (R7/BACK2 unused)"
     },
     NODE_2: {
         "name": "ESP32 Node 2",
         "relay_count": 7,
-        "description": "Spotless Node 2 - p4, p5, ro3, ro4, d2, s7, s9"
+        "description": "Spotless Node 2 - flushmain, p3, d2, ro4, ro3, p4 (R7/BACK2 unused)"
     },
     NODE_3: {
         "name": "ESP32 Node 3",
         "relay_count": 7,
-        "description": "Spotless Node 3 - s1, s2, s3, s4, s5, s6, s8"
+        "description": "Spotless Node 3 - s8, s1, s5, s4, s3, s2 (R7/BACK2 unused)"
     },
 }
 
@@ -138,32 +139,40 @@ RELAY_LABELS = {
 # -----------------------------------------------------------------------------
 # Device Variable Mapping Reference
 # -----------------------------------------------------------------------------
+# BACK2 (Relay 7) retired on every node — faulty relay channel, left unused.
 # NODE 1 Devices:
-#   p1   → BACK2    (Relay 7) - Peristaltic Pump 1
-#   p2   → BACK1    (Relay 6) - Peristaltic Pump 2
-#   ro1  → RS1&DS2  (Relay 4) - RO Solenoid 1
-#   ro2  → RS2&DS1  (Relay 5) - RO Solenoid 2
+#   pump → S1       (Relay 1) - Booster Pump 220V
+#   p1   → P1&P2    (Relay 2) - Peristaltic Pump 1 (Shampoo)  [moved from BACK2]
 #   d1   → FP1      (Relay 3) - Diaphragm Pump 1
-#   p3   → P1&P2    (Relay 2) - Pumps
-#   pump → S1       (Relay 1) - Main Pump 220V
+#   ro2  → RS1&DS2  (Relay 4) - RO Solenoid 2 (Drain Container 1)
+#   ro1  → RS2&DS1  (Relay 5) - RO Solenoid 1 (Fill Container 1)
+#   p2   → BACK1    (Relay 6) - Peristaltic Pump 2 (Conditioner)
+#   --   → BACK2    (Relay 7) - UNUSED
 #
 # NODE 2 Devices:
-#   p4   → BACK2    (Relay 7) - Peristaltic Pump 4
-#   p5   → BACK1    (Relay 6) - Peristaltic Pump 5
-#   ro3  → RS1&DS2  (Relay 4) - RO Solenoid 3
-#   ro4  → RS2&DS1  (Relay 5) - RO Solenoid 4
-#   d2   → FP1      (Relay 3) - Diaphragm Pump 2
-#   s7   → P1&P2    (Relay 2) - Solenoid 7
-#   s9   → S1       (Relay 1) - Solenoid 9 220V
+#   flushmain → S1       (Relay 1) - Autoflush Gate 220V
+#   p3        → P1&P2    (Relay 2) - Peristaltic Pump 3 (Med Shampoo) [moved from Node 1]
+#   d2        → FP1      (Relay 3) - Diaphragm Pump 2
+#   ro4       → RS1&DS2  (Relay 4) - RO Solenoid 4 (Drain Container 2)
+#   ro3       → RS2&DS1  (Relay 5) - RO Solenoid 3 (Fill Container 2)
+#   p4        → BACK1    (Relay 6) - Peristaltic Pump 4 (Disinfectant) [replaced p5 backup]
+#   --        → BACK2    (Relay 7) - UNUSED
 #
 # NODE 3 Devices:
-#   s1   → BACK2    (Relay 7) - Solenoid 1
+#   s8   → S1       (Relay 1) - Main Gate 220V (bath lines)
+#   s1   → P1&P2    (Relay 2) - Solenoid 1 (Shampoo line gate)  [moved from BACK2]
+#   s5   → FP1      (Relay 3) - Solenoid 5 (Water line)
+#   s4   → RS1&DS2  (Relay 4) - Solenoid 4
+#   s3   → RS2&DS1  (Relay 5) - Solenoid 3
 #   s2   → BACK1    (Relay 6) - Solenoid 2
-#   s3   → RS1&DS2  (Relay 4) - Solenoid 3
-#   s4   → RS2&DS1  (Relay 5) - Solenoid 4
-#   s5   → FP1      (Relay 3) - Solenoid 5
-#   s6   → P1&P2    (Relay 2) - Solenoid 6
-#   s8   → S1       (Relay 1) - Solenoid 8 220V
+#   --   → BACK2    (Relay 7) - UNUSED
+#
+# Pi-direct GPIO (see GPIO_RELAYS below):
+#   dry (14), roof (15), geyser (18), top (20), bottom (21), rglight (24)
+#   top    - Flush Top Nozzle    (moved off ESP32 Node 2)
+#   bottom - Flush Bottom Nozzle (moved off ESP32 Node 3)
+#   p4 (Disinfectant dosing pump) now on Node 2 BACK1 (Relay 6).
+#   p5 (Backup pump) DROPPED — replaced by p4.
 
 # -----------------------------------------------------------------------------
 # Direct Raspberry Pi GPIO Relays
@@ -186,6 +195,14 @@ GPIO_RELAYS = {
     "geyser": {
         "pin": 18,
         "description": "Geyser/Heater Relay",
+    },
+    "top": {
+        "pin": 20,
+        "description": "Flush Top Nozzle (moved from ESP32 Node 2)",
+    },
+    "bottom": {
+        "pin": 21,
+        "description": "Flush Bottom Nozzle (moved from ESP32 Node 3)",
     },
     "rglight": {
         "pin": 24,

@@ -17,7 +17,7 @@
  *   Relay 4: RS1&DS2      - GPIO 12  → LED_WATER (GPIO 38)
  *   Relay 5: RS2&DS1      - GPIO 13  → LED_RESETCLEAN (GPIO 39)
  *   Relay 6: BACK1        - GPIO 14  → PRE-MIX1 (GPIO 40)
- *   Relay 7: BACK2        - GPIO 21  → PRE-MIX2 (GPIO 42)
+ *   Relay 7: BACK2        - GPIO 21  → PRE-MIX2 (GPIO 41)
  * 
  * MQTT Topics:
  *   Subscribe: spotless/nodes/{NODE_ID}/relays/{n}/command
@@ -59,7 +59,7 @@ const int relayLedPins[RELAY_COUNT] = {
     RELAY_4_LED,   // 38 - RS1&DS2 → LED_WATER
     RELAY_5_LED,   // 39 - RS2&DS1 → LED_RESETCLEAN
     RELAY_6_LED,   // 40 - BACK1 → PRE-MIX1
-    RELAY_7_LED    // 42 - BACK2 → PRE-MIX2
+    RELAY_7_LED    // 41 - BACK2 → PRE-MIX2
 };
 
 // Relay labels for debugging and state reporting

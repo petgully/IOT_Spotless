@@ -212,12 +212,17 @@ def _drain_stages(dur: int) -> List[Dict]:
 
 
 def _flush_stages(dur: int) -> List[Dict]:
-    """Autoflush - bottom first, then top (contract section 6.2)."""
+    """Autoflush - bottom first, then top (contract section 6.2).
+
+    Note: the flush nozzles 'top' and 'bottom' moved off the ESP32 nodes
+    onto direct Raspberry Pi GPIO (top=GPIO20, bottom=GPIO21), so they are
+    addressed with the 'gpio:' prefix here.
+    """
     return [
         _relay_stage("flush_bottom", "Cleaning Tub - Bottom", dur,
-                     "flush.png", ["flushmain", "bottom", "pump"]),
+                     "flush.png", ["flushmain", "gpio:bottom", "pump"]),
         _relay_stage("flush_top",    "Cleaning Tub - Top", dur,
-                     "flush.png", ["flushmain", "top", "pump"]),
+                     "flush.png", ["flushmain", "gpio:top", "pump"]),
     ]
 
 
@@ -334,6 +339,8 @@ def _full_session_stages(profile_values: Dict[str, int],
     stages.append(_relay_stage(
         "disinfectant", "Disinfecting Tub", p["dval"], "disinfect.png",
         DISINFECT_LINE_DEVICES,
+        # p4 (disinfectant dosing pump) now lives on Node 2 BACK1 (Relay 6),
+        # replacing the p5 backup, so dosing is active again.
         parallel_pump={"device": "p4", "duration": int(p["wt"] * 0.8)},
         audio="disinfect",
     ))
@@ -637,6 +644,7 @@ SESSION_STAGES: Dict[str, List[Dict]] = {
             _relay_stage(
                 "disinfectant", "Disinfecting Tub", 60, "disinfect.png",
                 DISINFECT_LINE_DEVICES,
+                # p4 now on Node 2 BACK1 (Relay 6) — dosing active again.
                 parallel_pump={"device": "p4", "duration": 12},
                 audio="disinfect",
             ),

@@ -2,21 +2,26 @@
 =============================================================================
 Spotless Functions - Bath Session Control - Project Spotless
 =============================================================================
-Main bath session functions adapted for IoT architecture.
+*** DEPRECATED / LEGACY — NOT USED BY THE LIVE SYSTEM ***
+The live bath runner is StageExecutor (spotless_controller.py) driven by
+stage dicts from session_stages.py (see main.py). This function-based layer
+is kept for reference only. It has been updated to match the current
+hardware map (BACK2/Relay 7 retired; flush 'top'/'bottom' moved to Pi GPIO;
+p4 disinfectant pump now on Node 2 BACK1, p5 backup dropped) but is not
+exercised by production.
 
-This module contains all the core functions for controlling the pet
+This module contains the older core functions for controlling the pet
 grooming/bathing process via ESP32 nodes and direct Raspberry Pi GPIO.
 
-Variable Mapping (Legacy → New):
-    top → s6
-    bottom → s7
-    flushmain → s8
-    roof → s9
+Current device map (post BACK2 retirement):
+    Flush nozzles: top -> Pi GPIO 20, bottom -> Pi GPIO 21 (self.gpio.top/bottom)
+    flushmain -> s8 (ESP32 Node 2 Relay 1)
+    p4 (disinfectant) -> Node 2 BACK1 / Relay 6 (replaced p5 backup)
 
 Device Summary:
-    ESP32 Devices: p1, p2, p3, p4, p5, ro1, ro2, ro3, ro4, d1, d2, 
-                   pump, s1-s9
-    Direct GPIO:   dry, geyser
+    ESP32 Devices: p1, p2, p3, p4, ro1, ro2, ro3, ro4, d1, d2,
+                   pump, s1-s5, s8, flushmain
+    Direct GPIO:   dry, roof, geyser, top, bottom, rglight
 =============================================================================
 """
 
@@ -96,9 +101,8 @@ class SpotlessController:
     @property
     def p3(self): return self.devices.p3
     @property
-    def p4(self): return self.devices.p4
-    @property
-    def p5(self): return self.devices.p5
+    def p4(self): return self.devices.p4   # disinfectant pump — now Node 2 BACK1
+    # p5 (backup pump) DROPPED — replaced by p4 on Node 2 BACK1 (Relay 6).
     
     # RO Solenoids
     @property
@@ -127,14 +131,15 @@ class SpotlessController:
     def s4(self): return self.devices.s4
     @property
     def s5(self): return self.devices.s5
+    # s6 (top) and s7 (bottom) now live on direct Pi GPIO, not the ESP32.
     @property
-    def s6(self): return self.devices.s6  # was: top
+    def s6(self): return self.gpio.top      # flush top nozzle -> Pi GPIO 20
     @property
-    def s7(self): return self.devices.s7  # was: bottom
+    def s7(self): return self.gpio.bottom   # flush bottom nozzle -> Pi GPIO 21
     @property
-    def s8(self): return self.devices.s8  # was: flushmain
+    def s8(self): return self.devices.s8    # flushmain (ESP32)
     @property
-    def s9(self): return self.devices.s9  # was: roof
+    def s9(self): return self.devices.s9    # flushmain alias (ESP32)
     
     # Main pump
     @property
@@ -144,7 +149,15 @@ class SpotlessController:
     @property
     def dry(self): return self.gpio.dry
     @property
+    def roof(self): return self.gpio.roof
+    @property
     def geyser(self): return self.gpio.geyser
+    @property
+    def top(self): return self.gpio.top
+    @property
+    def bottom(self): return self.gpio.bottom
+    @property
+    def rglight(self): return self.gpio.rglight
     
     # =========================================================================
     # Helper Functions
@@ -394,7 +407,7 @@ class SpotlessController:
         curr_act = "Medicated_Bath"
         st = self.start_timer(curr_act)
         
-        # Start pump asynchronously
+        # Start dosing pump asynchronously (p4 now on Node 2 BACK1 / Relay 6)
         pump_thread = self.pump_ready_async(self.p4, pump_wait)
         
         # Play audio
@@ -477,7 +490,7 @@ class SpotlessController:
         
         diwt = pump_wait * 0.8
         
-        # Start pump asynchronously
+        # Start dosing pump asynchronously (p4 now on Node 2 BACK1 / Relay 6)
         pump_thread = self.pump_ready_async(self.p4, diwt)
         
         self.play_audio("disinfect")
@@ -571,10 +584,10 @@ class SpotlessController:
         off_time = datetime.strptime("05:00", "%H:%M").time()
         
         if on_time <= current_time or current_time < off_time:
-            self.s9.on()  # roof = s9
+            self.roof.on()  # roof tubelight -> Pi GPIO 15
             logger.info("Roof lights turned ON")
         else:
-            self.s9.off()
+            self.roof.off()
             logger.info("Roof lights turned OFF")
             
     # =========================================================================
@@ -604,8 +617,8 @@ class SpotlessController:
             stage: Starting stage (1-6, allows resuming)
             ctype: Conditioner type (100=normal, 200=medicated)
         """
-        # Turn on roof lights (s9 was 'roof')
-        self.s9.on()
+        # Turn on roof lights
+        self.roof.on()
         
         primeval = 30
         shampoo_empty_time = 6
@@ -699,7 +712,7 @@ class SpotlessController:
         
         self.kill_audio()
         self.Lightsoff()
-        self.s9.off()  # roof off
+        self.roof.off()
         self.control_roof_lights()
         
     def fromDisinfectant(self, qr_return: str, sval: float, cval: float, 
@@ -760,13 +773,14 @@ class SpotlessController:
         """Test all relays sequentially."""
         logger.info("Testing all relays...")
         
-        # Test ESP32 devices
+        # Test ESP32 devices (BACK2/Relay 7 retired; p5 backup dropped;
+        # p4 now on Node 2 BACK1; top/bottom moved to Pi GPIO).
         all_devices = [
-            self.p1, self.p2, self.p3, self.p4, self.p5,
+            self.p1, self.p2, self.p3, self.p4,
             self.ro1, self.ro2, self.ro3, self.ro4,
             self.d1, self.d2,
-            self.s1, self.s2, self.s3, self.s4, self.s5, 
-            self.s6, self.s7, self.s8, self.s9,
+            self.s1, self.s2, self.s3, self.s4, self.s5,
+            self.s8,
             self.pump
         ]
         
@@ -777,16 +791,14 @@ class SpotlessController:
             device.off()
             time.sleep(0.5)
             
-        # Test GPIO relays
-        logger.info("Testing dry...")
-        self.dry.on()
-        time.sleep(2)
-        self.dry.off()
-        
-        logger.info("Testing geyser...")
-        self.geyser.on()
-        time.sleep(2)
-        self.geyser.off()
+        # Test direct Pi GPIO relays (now includes top + bottom flush nozzles)
+        for relay in [self.dry, self.roof, self.geyser,
+                      self.top, self.bottom, self.rglight]:
+            logger.info(f"Testing {relay.name} (GPIO {relay.pin})...")
+            relay.on()
+            time.sleep(2)
+            relay.off()
+            time.sleep(0.5)
         
         logger.info("Relay test complete!")
     
@@ -794,13 +806,13 @@ class SpotlessController:
         """
         Demo mode: Run all relays sequentially in a specific sequence.
         
-        Sequence for each ESP32 node (backup2, backup1, rs2, rs1, fp1, p1, s1):
-        - Node 1: p1, p2, ro2, ro1, d1, p3, pump
-        - Node 2: p4, p5, ro4, ro3, d2, s7, s9
-        - Node 3: s1, s2, s4, s3, s5, s6, s8
+        Sequence for each ESP32 node (Relay 1..6; Relay 7/BACK2 retired):
+        - Node 1: pump, p1, d1, ro2, ro1, p2
+        - Node 2: flushmain, p3, d2, ro4, ro3, p4
+        - Node 3: s8, s1, s5, s4, s3, s2
         
         Then Raspberry Pi GPIO relays:
-        - dry (GPIO 14), geyser (GPIO 18)
+        - dry, roof, geyser, top, bottom, rglight
         
         Each relay runs for 5 seconds.
         Works with any number of online nodes - offline nodes are skipped gracefully.
@@ -809,63 +821,56 @@ class SpotlessController:
         logger.info(f"Starting DEMO mode for {qr_return}")
         logger.info("=" * 60)
         
-        # Relay sequence: backup2, backup1, rs2, rs1, fp1, p1, s1
-        # This corresponds to relays: 7, 6, 5, 4, 3, 2, 1
+        # ESP32 relays per node: Relay 1, 2, 3, 4, 5, 6 (Relay 7/BACK2 unused)
         
-        # Node 1 sequence: p1 (backup2), p2 (backup1), ro2 (rs2), ro1 (rs1), d1 (fp1), p3 (p1), pump (s1)
         logger.info("\n--- Node 1 (spotless_node1) ---")
-        node1_sequence = [self.p1, self.p2, self.ro2, self.ro1, self.d1, self.p3, self.pump]
-        node1_names = ["p1 (backup2)", "p2 (backup1)", "ro2 (rs2)", "ro1 (rs1)", "d1 (fp1)", "p3 (p1)", "pump (s1)"]
+        node1_sequence = [self.pump, self.p1, self.d1, self.ro2, self.ro1, self.p2]
+        node1_names = ["pump (R1)", "p1 (R2)", "d1 (R3)", "ro2 (R4)", "ro1 (R5)", "p2 (R6)"]
         
         for device, name in zip(node1_sequence, node1_names):
             logger.info(f"  Activating {name}...")
             success = device.on()
             if not success:
-                logger.warning(f"    ⚠️  Failed to activate {name} (node may be offline)")
+                logger.warning(f"    Failed to activate {name} (node may be offline)")
             time.sleep(5)
             device.off()
             time.sleep(0.5)
         
-        # Node 2 sequence: p4 (backup2), p5 (backup1), ro4 (rs2), ro3 (rs1), d2 (fp1), s7 (p1), s9 (s1)
         logger.info("\n--- Node 2 (spotless_node2) ---")
-        node2_sequence = [self.p4, self.p5, self.ro4, self.ro3, self.d2, self.s7, self.s9]
-        node2_names = ["p4 (backup2)", "p5 (backup1)", "ro4 (rs2)", "ro3 (rs1)", "d2 (fp1)", "s7 (p1)", "s9 (s1)"]
+        node2_sequence = [self.s9, self.p3, self.d2, self.ro4, self.ro3, self.p4]
+        node2_names = ["flushmain (R1)", "p3 (R2)", "d2 (R3)", "ro4 (R4)", "ro3 (R5)", "p4 (R6)"]
         
         for device, name in zip(node2_sequence, node2_names):
             logger.info(f"  Activating {name}...")
             success = device.on()
             if not success:
-                logger.warning(f"    ⚠️  Failed to activate {name} (node may be offline)")
+                logger.warning(f"    Failed to activate {name} (node may be offline)")
             time.sleep(5)
             device.off()
             time.sleep(0.5)
         
-        # Node 3 sequence: s1 (backup2), s2 (backup1), s4 (rs2), s3 (rs1), s5 (fp1), s6 (p1), s8 (s1)
         logger.info("\n--- Node 3 (spotless_node3) ---")
-        node3_sequence = [self.s1, self.s2, self.s4, self.s3, self.s5, self.s6, self.s8]
-        node3_names = ["s1 (backup2)", "s2 (backup1)", "s4 (rs2)", "s3 (rs1)", "s5 (fp1)", "s6 (p1)", "s8 (s1)"]
+        node3_sequence = [self.s8, self.s1, self.s5, self.s4, self.s3, self.s2]
+        node3_names = ["s8 (R1)", "s1 (R2)", "s5 (R3)", "s4 (R4)", "s3 (R5)", "s2 (R6)"]
         
         for device, name in zip(node3_sequence, node3_names):
             logger.info(f"  Activating {name}...")
             success = device.on()
             if not success:
-                logger.warning(f"    ⚠️  Failed to activate {name} (node may be offline)")
+                logger.warning(f"    Failed to activate {name} (node may be offline)")
             time.sleep(5)
             device.off()
             time.sleep(0.5)
         
-        # Raspberry Pi GPIO relays
+        # Raspberry Pi GPIO relays (now includes top + bottom flush nozzles)
         logger.info("\n--- Raspberry Pi GPIO Relays ---")
-        logger.info("  Activating dry (GPIO 14)...")
-        self.dry.on()
-        time.sleep(5)
-        self.dry.off()
-        time.sleep(0.5)
-        
-        logger.info("  Activating geyser (GPIO 18)...")
-        self.geyser.on()
-        time.sleep(5)
-        self.geyser.off()
+        for relay in [self.dry, self.roof, self.geyser,
+                      self.top, self.bottom, self.rglight]:
+            logger.info(f"  Activating {relay.name} (GPIO {relay.pin})...")
+            relay.on()
+            time.sleep(5)
+            relay.off()
+            time.sleep(0.5)
         
         logger.info("=" * 60)
         logger.info("DEMO mode complete!")

@@ -20,33 +20,38 @@ Usage:
     dc.top.on()      # Turn on flush top nozzle
     dc.flushmain.on() # Turn on autoflush gate (220V)
 
-Node/Relay Mapping:
+Node/Relay Mapping (BACK2 / Relay 7 retired — faulty relay channel):
     NODE 1 (spotless_node1) — Container 1 system:
-        p1   → BACK2    (Relay 7) - Peristaltic Pump 1 (Shampoo)
-        p2   → BACK1    (Relay 6) - Peristaltic Pump 2 (Conditioner)
-        ro1  → RS2&DS1  (Relay 5) - RO Solenoid 1 (Fill Container 1)
-        ro2  → RS1&DS2  (Relay 4) - RO Solenoid 2 (Drain Container 1)
-        d1   → FP1      (Relay 3) - Diaphragm Pump 1 (Push from Container 1)
-        p3   → P1&P2    (Relay 2) - Peristaltic Pump 3 (Med Shampoo)
         pump → S1       (Relay 1) - Booster Pump 220V
+        p1   → P1&P2    (Relay 2) - Peristaltic Pump 1 (Shampoo)   [moved from BACK2]
+        d1   → FP1      (Relay 3) - Diaphragm Pump 1 (Push from Container 1)
+        ro2  → RS1&DS2  (Relay 4) - RO Solenoid 2 (Drain Container 1)
+        ro1  → RS2&DS1  (Relay 5) - RO Solenoid 1 (Fill Container 1)
+        p2   → BACK1    (Relay 6) - Peristaltic Pump 2 (Conditioner)
+        --   → BACK2    (Relay 7) - BLANK / unused
 
     NODE 2 (spotless_node2) — Container 2 system + Autoflush:
-        p4       → BACK2    (Relay 7) - Peristaltic Pump 4 (Disinfectant)
-        p5       → BACK1    (Relay 6) - Peristaltic Pump 5 (Backup)
-        ro3      → RS2&DS1  (Relay 5) - RO Solenoid 3 (Fill Container 2)
-        ro4      → RS1&DS2  (Relay 4) - RO Solenoid 4 (Drain Container 2)
-        d2       → FP1      (Relay 3) - Diaphragm Pump 2 (Push from Container 2)
-        top      → P1&P2    (Relay 2) - Flush Top Nozzle
         flushmain→ S1       (Relay 1) - Autoflush Gate 220V
+        p3       → P1&P2    (Relay 2) - Peristaltic Pump 3 (Med Shampoo) [moved from Node 1]
+        d2       → FP1      (Relay 3) - Diaphragm Pump 2 (Push from Container 2)
+        ro4      → RS1&DS2  (Relay 4) - RO Solenoid 4 (Drain Container 2)
+        ro3      → RS2&DS1  (Relay 5) - RO Solenoid 3 (Fill Container 2)
+        p4       → BACK1    (Relay 6) - Peristaltic Pump 4 (Disinfectant) [replaced p5 backup]
+        --       → BACK2    (Relay 7) - BLANK / unused
 
     NODE 3 (spotless_node3) — Bath line solenoid valves:
-        s1     → BACK2    (Relay 7) - Solenoid 1 (Shampoo line gate)
-        s2     → BACK1    (Relay 6) - Solenoid 2 (Common spray / anti-backflow)
-        s3     → RS2&DS1  (Relay 5) - Solenoid 3 (Disinfectant line gate)
-        s4     → RS1&DS2  (Relay 4) - Solenoid 4 (Common valve / anti-backflow)
-        s5     → FP1      (Relay 3) - Solenoid 5 (Water line)
-        bottom → P1&P2    (Relay 2) - Flush Bottom Nozzle
         s8     → S1       (Relay 1) - Main Gate 220V (bath lines)
+        s1     → P1&P2    (Relay 2) - Solenoid 1 (Shampoo line gate)   [moved from BACK2]
+        s5     → FP1      (Relay 3) - Solenoid 5 (Water line)
+        s4     → RS1&DS2  (Relay 4) - Solenoid 4 (Common valve / anti-backflow)
+        s3     → RS2&DS1  (Relay 5) - Solenoid 3 (Disinfectant line gate)
+        s2     → BACK1    (Relay 6) - Solenoid 2 (Common spray / anti-backflow)
+        --     → BACK2    (Relay 7) - BLANK / unused
+
+    DISPLACED DEVICES (re-homed off the ESP32 nodes):
+        top    - Flush Top Nozzle    -> Raspberry Pi GPIO 20 (see gpio_controller.py)
+        bottom - Flush Bottom Nozzle -> Raspberry Pi GPIO 21 (see gpio_controller.py)
+        p5     - Peristaltic Pump 5 (Backup) -> DROPPED (replaced by p4 on Node 2 BACK1)
 =============================================================================
 """
 
@@ -106,63 +111,77 @@ class DeviceMap:
         # =====================================================================
         # NODE 1 — Container 1 system (spotless_node1)
         # =====================================================================
-        self._add("p1", NODE_1, RELAY_BACK2, "BACK2",
-                  "Peristaltic Pump 1 — Shampoo")
-        self._add("p2", NODE_1, RELAY_BACK1, "BACK1",
-                  "Peristaltic Pump 2 — Conditioner")
-        self._add("ro1", NODE_1, RELAY_RS2_DS1, "RS2_DS1",
-                  "RO Solenoid 1 — Fill Container 1")
-        self._add("ro2", NODE_1, RELAY_RS1_DS2, "RS1_DS2",
-                  "RO Solenoid 2 — Drain Container 1")
-        self._add("d1", NODE_1, RELAY_FP1, "FP1",
-                  "Diaphragm Pump 1 — Push from Container 1")
-        self._add("p3", NODE_1, RELAY_P1_P2, "P1_P2",
-                  "Peristaltic Pump 3 — Med Shampoo")
+        # BACK2 (Relay 7) retired - faulty relay channel.
+        #   p1 (shampoo pump) re-homed BACK2 -> P1_P2 (Relay 2).
+        #   p3 (med shampoo) relocated to Node 2 (Relay 2). Relay 7 left blank.
         self._add("pump", NODE_1, RELAY_S1_220V, "S1_220V",
                   "Booster Pump 220V")
+        self._add("p1", NODE_1, RELAY_P1_P2, "P1_P2",
+                  "Peristaltic Pump 1 — Shampoo")
+        self._add("d1", NODE_1, RELAY_FP1, "FP1",
+                  "Diaphragm Pump 1 — Push from Container 1")
+        self._add("ro2", NODE_1, RELAY_RS1_DS2, "RS1_DS2",
+                  "RO Solenoid 2 — Drain Container 1")
+        self._add("ro1", NODE_1, RELAY_RS2_DS1, "RS2_DS1",
+                  "RO Solenoid 1 — Fill Container 1")
+        self._add("p2", NODE_1, RELAY_BACK1, "BACK1",
+                  "Peristaltic Pump 2 — Conditioner")
+        # Relay 7 (BACK2) — BLANK / unused
 
         # =====================================================================
         # NODE 2 — Container 2 system + Autoflush (spotless_node2)
         # =====================================================================
-        self._add("p4", NODE_2, RELAY_BACK2, "BACK2",
-                  "Peristaltic Pump 4 — Disinfectant")
-        self._add("p5", NODE_2, RELAY_BACK1, "BACK1",
-                  "Peristaltic Pump 5 — Backup")
-        self._add("ro3", NODE_2, RELAY_RS2_DS1, "RS2_DS1",
-                  "RO Solenoid 3 — Fill Container 2")
-        self._add("ro4", NODE_2, RELAY_RS1_DS2, "RS1_DS2",
-                  "RO Solenoid 4 — Drain Container 2")
-        self._add("d2", NODE_2, RELAY_FP1, "FP1",
-                  "Diaphragm Pump 2 — Push from Container 2")
-        self._add("top", NODE_2, RELAY_P1_P2, "P1_P2",
-                  "Flush Top Nozzle")
+        # BACK2 (Relay 7) retired - faulty relay channel.
+        #   p3 (med shampoo, relocated from Node 1) now on P1_P2 (Relay 2).
+        #   p4 (disinfectant) now on BACK1 (Relay 6) — replaced p5 backup.
+        #   top -> Pi GPIO 20 (gpio_controller). Relay 7 left blank.
         self._add("flushmain", NODE_2, RELAY_S1_220V, "S1_220V",
                   "Autoflush Gate 220V")
+        self._add("p3", NODE_2, RELAY_P1_P2, "P1_P2",
+                  "Peristaltic Pump 3 — Med Shampoo")
+        self._add("d2", NODE_2, RELAY_FP1, "FP1",
+                  "Diaphragm Pump 2 — Push from Container 2")
+        self._add("ro4", NODE_2, RELAY_RS1_DS2, "RS1_DS2",
+                  "RO Solenoid 4 — Drain Container 2")
+        self._add("ro3", NODE_2, RELAY_RS2_DS1, "RS2_DS1",
+                  "RO Solenoid 3 — Fill Container 2")
+        self._add("p4", NODE_2, RELAY_BACK1, "BACK1",
+                  "Peristaltic Pump 4 — Disinfectant")
+        # Relay 7 (BACK2) — BLANK / unused
 
         # =====================================================================
         # NODE 3 — Bath line solenoid valves (spotless_node3)
         # =====================================================================
-        self._add("s1", NODE_3, RELAY_BACK2, "BACK2",
-                  "Solenoid 1 — Shampoo line gate")
-        self._add("s2", NODE_3, RELAY_BACK1, "BACK1",
-                  "Solenoid 2 — Common spray / anti-backflow")
-        self._add("s3", NODE_3, RELAY_RS2_DS1, "RS2_DS1",
-                  "Solenoid 3 — Disinfectant line gate")
-        self._add("s4", NODE_3, RELAY_RS1_DS2, "RS1_DS2",
-                  "Solenoid 4 — Common valve / anti-backflow")
-        self._add("s5", NODE_3, RELAY_FP1, "FP1",
-                  "Solenoid 5 — Water line")
-        self._add("bottom", NODE_3, RELAY_P1_P2, "P1_P2",
-                  "Flush Bottom Nozzle")
+        # BACK2 (Relay 7) retired - faulty relay channel.
+        #   s1 (shampoo line gate) re-homed BACK2 -> P1_P2 (Relay 2).
+        #   bottom -> Pi GPIO 21 (gpio_controller). Relay 7 left blank.
         self._add("s8", NODE_3, RELAY_S1_220V, "S1_220V",
                   "Main Gate 220V — Bath lines")
+        self._add("s1", NODE_3, RELAY_P1_P2, "P1_P2",
+                  "Solenoid 1 — Shampoo line gate")
+        self._add("s5", NODE_3, RELAY_FP1, "FP1",
+                  "Solenoid 5 — Water line")
+        self._add("s4", NODE_3, RELAY_RS1_DS2, "RS1_DS2",
+                  "Solenoid 4 — Common valve / anti-backflow")
+        self._add("s3", NODE_3, RELAY_RS2_DS1, "RS2_DS1",
+                  "Solenoid 3 — Disinfectant line gate")
+        self._add("s2", NODE_3, RELAY_BACK1, "BACK1",
+                  "Solenoid 2 — Common spray / anti-backflow")
+        # Relay 7 (BACK2) — BLANK / unused
+
+        # =====================================================================
+        # DISPLACED DEVICES (no longer ESP32-controlled):
+        #   top    -> Raspberry Pi GPIO 20  (gpio_controller.py / "gpio:top")
+        #   bottom -> Raspberry Pi GPIO 21  (gpio_controller.py / "gpio:bottom")
+        #   p5     -> DROPPED (backup pump; replaced by p4 on Node 2 BACK1/Relay 6)
+        # =====================================================================
 
         # =====================================================================
         # Backward-compatible aliases (old names → new names)
         # =====================================================================
-        self._alias("s6", "bottom")
-        self._alias("s7", "top")
         self._alias("s9", "flushmain")
+        # NOTE: 's6' -> bottom and 's7' -> top aliases removed for now;
+        # bottom/top are currently unassigned (pending reassignment).
 
     def _add(self, name: str, node_id: str, relay_num: int,
              relay_label: str, description: str):
@@ -270,8 +289,9 @@ class DeviceController:
         for name, device_info in self._devices.all_devices().items():
             self._handles[name] = DeviceHandle(device_info, node_controller)
 
-        # Also register aliases
-        for alias in ["s6", "s7", "s9"]:
+        # Also register aliases (s6 -> bottom, s7 -> top removed: those
+        # devices are currently unassigned / pending reassignment).
+        for alias in ["s9"]:
             dev = self._devices.get(alias)
             if dev:
                 target_name = dev.name
@@ -363,12 +383,12 @@ if __name__ == "__main__":
     print("")
     print("# Get device info")
     print(f"devices.p1       = {devices.p1}")
-    print(f"devices.top      = {devices.top}")
-    print(f"devices.bottom   = {devices.bottom}")
+    print(f"devices.p3       = {devices.p3}")
+    print(f"devices.s1       = {devices.s1}")
     print(f"devices.flushmain= {devices.flushmain}")
     print(f"devices.s8       = {devices.s8}")
     print("")
     print("# Backward-compatible aliases")
-    print(f"devices.s6       = {devices.s6}  (alias for 'bottom')")
-    print(f"devices.s7       = {devices.s7}  (alias for 'top')")
     print(f"devices.s9       = {devices.s9}  (alias for 'flushmain')")
+    print("")
+    print("# Displaced: top -> Pi GPIO 20, bottom -> Pi GPIO 21, p5 -> dropped (p4 took BACK1)")

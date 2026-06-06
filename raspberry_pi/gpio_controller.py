@@ -9,8 +9,10 @@ the Raspberry Pi 5 GPIO header.
 
 Direct GPIO Relays:
     dry     - GPIO 14 - Dryer Relay
-    geyser  - GPIO 18 - Geyser/Heater Relay
     roof    - GPIO 15 - Roof Light (tubelight)
+    geyser  - GPIO 18 - Geyser/Heater Relay
+    top     - GPIO 20 - Flush Top Nozzle    (moved off ESP32 Node 2)
+    bottom  - GPIO 21 - Flush Bottom Nozzle  (moved off ESP32 Node 3)
     rglight - GPIO 24 - Red/Green Indicator Light
 
 Usage:
@@ -21,6 +23,8 @@ Usage:
     gpio.dry.off()     # Turn off dryer
     gpio.geyser.on()   # Turn on geyser
     gpio.roof.on()     # Turn on roof tubelight
+    gpio.top.on()      # Turn on flush top nozzle
+    gpio.bottom.on()   # Turn on flush bottom nozzle
     gpio.rglight.on()  # Turn on indicator light
     gpio.all_off()     # Turn off all GPIO relays
 =============================================================================
@@ -50,6 +54,8 @@ GPIO_PINS = {
     "dry": 14,      # Dryer Relay - GPIO 14
     "roof": 15,     # Roof Light (tubelight) - GPIO 15
     "geyser": 18,   # Geyser/Heater Relay - GPIO 18
+    "top": 20,      # Flush Top Nozzle - GPIO 20 (moved from ESP32 Node 2)
+    "bottom": 21,   # Flush Bottom Nozzle - GPIO 21 (moved from ESP32 Node 3)
     "rglight": 24,  # Red/Green Indicator Light - GPIO 24
 }
 
@@ -211,6 +217,16 @@ class GPIOController:
     def geyser(self) -> GPIORelay:
         """Access geyser relay (GPIO 18)."""
         return self._relays.get("geyser")
+
+    @property
+    def top(self) -> GPIORelay:
+        """Access flush top-nozzle relay (GPIO 20)."""
+        return self._relays.get("top")
+
+    @property
+    def bottom(self) -> GPIORelay:
+        """Access flush bottom-nozzle relay (GPIO 21)."""
+        return self._relays.get("bottom")
 
     @property
     def rglight(self) -> GPIORelay:

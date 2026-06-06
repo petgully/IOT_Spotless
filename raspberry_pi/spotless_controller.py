@@ -652,14 +652,15 @@ class StageExecutor:
     def _test_relays_sequence(self, index: int, total: int,
                               emit: EventCallback) -> None:
         all_mqtt = [
-            "p1", "p2", "p3", "p4", "p5",
+            "p1", "p2", "p3", "p4",
             "ro1", "ro2", "ro3", "ro4",
             "d1", "d2",
             "s1", "s2", "s3", "s4", "s5",
-            "top", "bottom", "flushmain", "s8",
+            "flushmain", "s8",
             "pump",
         ]
-        gpio_names = ["dry", "roof", "geyser", "rglight"]
+        # top/bottom moved to Pi GPIO; p4 on Node 2 BACK1; p5 backup dropped.
+        gpio_names = ["dry", "roof", "geyser", "top", "bottom", "rglight"]
         items = [(n, "mqtt") for n in all_mqtt] + [(n, "gpio") for n in gpio_names]
         total_items = len(items)
 
@@ -686,12 +687,13 @@ class StageExecutor:
     def _demo_sequence(self, index: int, total: int,
                        emit: EventCallback) -> None:
         nodes = {
-            "Node 1": ["p1", "p2", "ro1", "ro2", "d1", "p3", "pump"],
-            "Node 2": ["p4", "p5", "ro3", "ro4", "d2", "top", "flushmain"],
-            "Node 3": ["s1", "s2", "s3", "s4", "s5", "bottom", "s8"],
+            "Node 1": ["pump", "p1", "d1", "ro2", "ro1", "p2"],
+            "Node 2": ["flushmain", "p3", "d2", "ro4", "ro3", "p4"],
+            "Node 3": ["s8", "s1", "s5", "s4", "s3", "s2"],
         }
+        gpio_demo = ["dry", "roof", "geyser", "top", "bottom", "rglight"]
         step = 0
-        total_steps = sum(len(v) for v in nodes.values()) + 4
+        total_steps = sum(len(v) for v in nodes.values()) + len(gpio_demo)
 
         for node_label, devices_list in nodes.items():
             logger.info(f"  --- {node_label} ---")
@@ -713,7 +715,7 @@ class StageExecutor:
                 })
                 self._responsive_sleep(0.5)
 
-        for gpio_name in ["dry", "roof", "geyser", "rglight"]:
+        for gpio_name in gpio_demo:
             if not self._running:
                 return
             r = self.gpio.get_relay(gpio_name) if self.gpio else None

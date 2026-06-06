@@ -88,7 +88,11 @@ Project Spotless is a modern rebuild of a legacy pet grooming automation system.
                │                                          ┌────────┴────────┐
                │                                          │  Direct Relays  │
                │                                          │  - Dryer (14)   │
+               │                                          │  - Roof (15)    │
                │                                          │  - Geyser (18)  │
+               │                                          │  - Top (20)     │
+               │                                          │  - Bottom (21)  │
+               │                                          │  - RGLight (24) │
                │                                          └─────────────────┘
 ┌──────────────┴───────────────────────────────────────────────────────────────┐
 │                              NODE LAYER                                       │
@@ -105,7 +109,7 @@ Project Spotless is a modern rebuild of a legacy pet grooming automation system.
 │  │  - RS1&DS2      │   │  - RS1&DS2      │   │  - RS1&DS2      │            │
 │  │  - RS2&DS1      │   │  - RS2&DS1      │   │  - RS2&DS1      │            │
 │  │  - BACK1        │   │  - BACK1        │   │  - BACK1        │            │
-│  │  - BACK2        │   │  - BACK2        │   │  - BACK2        │            │
+│  │  - BACK2 (X)    │   │  - BACK2 (X)    │   │  - BACK2 (X)    │            │
 │  │                 │   │                 │   │                 │            │
 │  │  5 LED Links    │   │  5 LED Links    │   │  5 LED Links    │            │
 │  └─────────────────┘   └─────────────────┘   └─────────────────┘            │
@@ -129,7 +133,7 @@ Each ESP32-S3 controls 7 relays and 5 LED indicators:
 | RS1&DS2 | IO12 | Reset/Dispenser | LED_WATER (IO38) |
 | RS2&DS1 | IO13 | Reset/Dispenser | LED_RESETCLEAN (IO39) |
 | BACK1 | IO14 | Backup relay | PRE-MIX1 (IO40) |
-| BACK2 | IO21 | Backup relay | PRE-MIX2 (IO42) |
+| BACK2 | IO21 | RETIRED — faulty relay channel, unused (LED net PRE-MIX2 / IO41) |
 
 ### 2. Raspberry Pi 5 (Master Controller)
 
@@ -153,44 +157,53 @@ The brain of the system running Python:
 
 Friendly variable names mapped to physical relays:
 
+> **Note:** Relay 7 (BACK2) is retired on every node (faulty relay channel).
+> The displaced flush nozzles `top`/`bottom` moved to direct Pi GPIO. The
+> disinfectant pump `p4` now lives on Node 2 BACK1 (Relay 6), replacing the
+> dropped `p5` backup. See `device_map.py` / `gpio_controller.py`.
+
 **Node 1 (spotless_node1):**
 | Variable | Relay | Description |
 |----------|-------|-------------|
-| `p1` | BACK2 | Pump 1 |
-| `p2` | BACK1 | Pump 2 |
-| `ro1` | RS1&DS2 | Rinse/Dispenser |
-| `ro2` | RS2&DS1 | Rinse/Dispenser |
-| `d1` | FP1 | Dispenser 1 |
-| `p3` | P1&P2 | Pump 3 |
-| `pump` | S1 | Main pump |
+| `pump` | S1 (220V) | Booster pump 220V |
+| `p1` | P1&P2 | Peristaltic Pump 1 — Shampoo |
+| `d1` | FP1 | Diaphragm Pump 1 |
+| `ro2` | RS1&DS2 | RO Solenoid 2 — Drain Container 1 |
+| `ro1` | RS2&DS1 | RO Solenoid 1 — Fill Container 1 |
+| `p2` | BACK1 | Peristaltic Pump 2 — Conditioner |
+| — | BACK2 | **Unused (retired)** |
 
 **Node 2 (spotless_node2):**
-| Variable | Relay |
-|----------|-------|
-| `p4` | BACK2 |
-| `p5` | BACK1 |
-| `ro3` | RS1&DS2 |
-| `ro4` | RS2&DS1 |
-| `d2` | FP1 |
-| `s7` | P1&P2 |
-| `s9` | S1 |
+| Variable | Relay | Description |
+|----------|-------|-------------|
+| `flushmain` | S1 (220V) | Autoflush gate 220V |
+| `p3` | P1&P2 | Peristaltic Pump 3 — Med Shampoo |
+| `d2` | FP1 | Diaphragm Pump 2 |
+| `ro4` | RS1&DS2 | RO Solenoid 4 — Drain Container 2 |
+| `ro3` | RS2&DS1 | RO Solenoid 3 — Fill Container 2 |
+| `p4` | BACK1 | Peristaltic Pump 4 — Disinfectant |
+| — | BACK2 | **Unused (retired)** |
 
 **Node 3 (spotless_node3):**
-| Variable | Relay |
-|----------|-------|
-| `s1` | BACK2 |
-| `s2` | BACK1 |
-| `s3` | RS1&DS2 |
-| `s4` | RS2&DS1 |
-| `s5` | FP1 |
-| `s6` | P1&P2 |
-| `s8` | S1 |
+| Variable | Relay | Description |
+|----------|-------|-------------|
+| `s8` | S1 (220V) | Main gate 220V — bath lines |
+| `s1` | P1&P2 | Solenoid 1 — Shampoo line gate |
+| `s5` | FP1 | Solenoid 5 — Water line |
+| `s4` | RS1&DS2 | Solenoid 4 |
+| `s3` | RS2&DS1 | Solenoid 3 |
+| `s2` | BACK1 | Solenoid 2 |
+| — | BACK2 | **Unused (retired)** |
 
 **Direct GPIO (Raspberry Pi):**
 | Variable | GPIO | Description |
 |----------|------|-------------|
 | `dry` | 14 | Dryer relay |
+| `roof` | 15 | Roof light (tubelight) |
 | `geyser` | 18 | Water heater |
+| `top` | 20 | Flush top nozzle *(moved off ESP32 Node 2)* |
+| `bottom` | 21 | Flush bottom nozzle *(moved off ESP32 Node 3)* |
+| `rglight` | 24 | Red/green indicator light |
 
 ---
 
@@ -258,7 +271,7 @@ Raspberry Pi                          ESP32 Node
      │  SUBSCRIBE: spotless/node1/relay/+/state
      │<─────────────────────────────────── │
      │  Payload: {"relay": 1, "state": "ON",
-     │            "led_gpio": 42}          │
+     │            "led_gpio": 41}          │
      │                                     │
 ```
 
@@ -290,19 +303,23 @@ ESP32-S3 GPIO Pinout:
 │  GPIO 12 ──► Relay 4 (RS1&DS2)       │
 │  GPIO 13 ──► Relay 5 (RS2&DS1)       │
 │  GPIO 14 ──► Relay 6 (BACK1)         │
-│  GPIO 21 ──► Relay 7 (BACK2)         │
+│  GPIO 21 ──► Relay 7 (BACK2) [UNUSED]│
 │                                      │
 │  GPIO 37 ──► LED_SHAMPOO             │
 │  GPIO 38 ──► LED_WATER               │
 │  GPIO 39 ──► LED_RESETCLEAN          │
 │  GPIO 40 ──► PRE-MIX1                │
-│  GPIO 42 ──► PRE-MIX2                │
+│  GPIO 41 ──► PRE-MIX2 (LED net only) │
 └──────────────────────────────────────┘
 
 Raspberry Pi 5 GPIO:
 ┌──────────────────────────────────────┐
 │  GPIO 14 ──► Dryer Relay             │
+│  GPIO 15 ──► Roof Light (tubelight)  │
 │  GPIO 18 ──► Geyser Relay            │
+│  GPIO 20 ──► Flush Top Nozzle        │
+│  GPIO 21 ──► Flush Bottom Nozzle     │
+│  GPIO 24 ──► Red/Green Indicator     │
 └──────────────────────────────────────┘
 ```
 
