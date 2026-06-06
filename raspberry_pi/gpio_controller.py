@@ -2,10 +2,11 @@
 =============================================================================
 GPIO Controller - Direct Raspberry Pi GPIO Control - Project Spotless
 =============================================================================
-Controls relays directly connected to the Raspberry Pi GPIO pins.
+Controls relays directly connected to the Raspberry Pi 5 GPIO header.
 
-These are NOT connected through ESP32 nodes - they are directly wired to
-the Raspberry Pi 5 GPIO header.
+These are NOT connected through the ESP32 nodes and NOT through the HAT's
+MCP23017 I2C expander — they are wired straight to the Pi's 40-pin GPIO
+header and driven by NPN (MMBT3904) transistor stages (active-HIGH).
 
 Direct GPIO Relays:
     dry     - GPIO 14 - Dryer Relay
@@ -15,9 +16,18 @@ Direct GPIO Relays:
     bottom  - GPIO 21 - Flush Bottom Nozzle  (moved off ESP32 Node 3)
     rglight - GPIO 24 - Red/Green Indicator Light
 
+libgpiod compatibility
+----------------------
+Raspberry Pi 5 / Bookworm ships libgpiod **2.x**, whose Python API is
+completely different from the old 1.x API. This module supports BOTH:
+  - v2 (preferred): gpiod.request_lines(...) + gpiod.line.Value/Direction
+  - v1 (fallback):  gpiod.Chip(...).get_line(...).request(...)
+If neither real backend can be initialised the controller runs in an
+EXPLICIT simulated mode and logs an error (it will not pretend to work).
+
 Usage:
     from gpio_controller import GPIOController
-    
+
     gpio = GPIOController()
     gpio.dry.on()      # Turn on dryer
     gpio.dry.off()     # Turn off dryer
@@ -30,26 +40,58 @@ Usage:
 =============================================================================
 """
 
+import glob
 import logging
-from typing import Optional, Dict, List
+import os
+from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Try to import gpiod (Raspberry Pi 5 GPIO library)
+# =============================================================================
+# Detect gpiod and which API version is installed
+# =============================================================================
+# GPIO_AVAILABLE   - a usable gpiod module was imported
+# GPIOD_API        - "v2" | "v1" | None
+GPIO_AVAILABLE = False
+GPIOD_API: Optional[str] = None
+_V2_Direction = None
+_V2_Value = None
+
 try:
-    import gpiod
-    GPIO_AVAILABLE = True
+    import gpiod  # type: ignore
+
+    # v2 exposes request_lines() at module level and gpiod.line.{Value,Direction}.
+    # v1 exposes Chip(...).get_line() and gpiod.LINE_REQ_DIR_OUT.
+    if hasattr(gpiod, "request_lines") or hasattr(gpiod, "LineSettings"):
+        try:
+            from gpiod.line import Direction as _V2_Direction  # type: ignore
+            from gpiod.line import Value as _V2_Value          # type: ignore
+            GPIOD_API = "v2"
+            GPIO_AVAILABLE = True
+        except Exception as e:  # pragma: no cover - import edge cases
+            logger.error(f"gpiod v2 present but gpiod.line import failed: {e}")
+    elif hasattr(gpiod, "Chip") and hasattr(gpiod, "LINE_REQ_DIR_OUT"):
+        GPIOD_API = "v1"
+        GPIO_AVAILABLE = True
+    else:
+        logger.error("gpiod imported but neither v1 nor v2 API was detected.")
 except ImportError:
-    GPIO_AVAILABLE = False
-    logger.warning("gpiod not available - GPIO control will be simulated")
+    logger.warning(
+        "gpiod not available - GPIO control will be SIMULATED. "
+        "On a real Pi 5 install it with: sudo apt install python3-libgpiod"
+    )
 
 
 # =============================================================================
 # GPIO Pin Configuration
 # =============================================================================
-GPIO_CHIP = "gpiochip0"  # Raspberry Pi 5 GPIO chip
+# Candidate chip paths. On Pi 5 the 40-pin header lives on the RP1 chip whose
+# label is "pinctrl-rp1"; depending on kernel that is /dev/gpiochip0 (current)
+# or /dev/gpiochip4 (older). We auto-detect by label and fall back to these.
+GPIO_CHIP_CANDIDATES = ("/dev/gpiochip0", "/dev/gpiochip4")
+GPIO_CHIP_LABEL_HINTS = ("pinctrl-rp1", "rp1")
 
-# Direct GPIO Relay Pins
+# Direct GPIO Relay Pins (BCM numbering)
 GPIO_PINS = {
     "dry": 14,      # Dryer Relay - GPIO 14
     "roof": 15,     # Roof Light (tubelight) - GPIO 15
@@ -59,52 +101,56 @@ GPIO_PINS = {
     "rglight": 24,  # Red/Green Indicator Light - GPIO 24
 }
 
-# Relay active state (HIGH = relay ON for most relay modules)
+# Relay active state. The HAT drives each relay through an NPN transistor
+# (base HIGH -> relay ON), so these relays are ACTIVE-HIGH.
 GPIO_ACTIVE_STATE = True  # True = Active HIGH, False = Active LOW
+
+
+def _physical_high(state: bool) -> bool:
+    """Map a logical ON/OFF to the physical pin level given active state."""
+    return state if GPIO_ACTIVE_STATE else (not state)
 
 
 # =============================================================================
 # GPIO Relay Handle
 # =============================================================================
 class GPIORelay:
-    """Handle for controlling a single GPIO relay."""
-    
-    def __init__(self, name: str, pin: int, line=None):
+    """Handle for controlling a single GPIO relay.
+
+    `writer` is a callable(bool)->bool that performs the actual hardware write
+    (already accounting for active-high/low). When it is None the relay is in
+    simulated mode and state is tracked in software only.
+    """
+
+    def __init__(self, name: str, pin: int, writer: Optional[Callable[[bool], bool]] = None):
         self.name = name
         self.pin = pin
-        self._line = line
+        self._writer = writer
         self._state = False
-        
+
     def on(self) -> bool:
-        """Turn the relay ON."""
         return self.set(True)
-        
+
     def off(self) -> bool:
-        """Turn the relay OFF."""
         return self.set(False)
-        
+
     def set(self, state: bool) -> bool:
-        """Set relay state."""
         try:
-            if self._line is not None:
-                value = 1 if state else 0
-                if not GPIO_ACTIVE_STATE:
-                    value = 1 - value  # Invert for active low
-                self._line.set_value(value)
-            
+            ok = True
+            if self._writer is not None:
+                ok = self._writer(state)
             self._state = state
-            logger.info(f"GPIO {self.name} (pin {self.pin}): {'ON' if state else 'OFF'}")
-            return True
-            
+            logger.info(f"GPIO {self.name} (pin {self.pin}): {'ON' if state else 'OFF'}"
+                        f"{'' if self._writer is not None else ' [SIMULATED]'}")
+            return ok
         except Exception as e:
-            logger.error(f"Failed to set GPIO {self.name}: {e}")
+            logger.error(f"Failed to set GPIO {self.name} (pin {self.pin}): {e}")
             return False
-            
+
     @property
     def state(self) -> bool:
-        """Get current relay state."""
         return self._state
-        
+
     def __repr__(self):
         return f"GPIORelay({self.name}, pin={self.pin}, state={'ON' if self._state else 'OFF'})"
 
@@ -113,194 +159,283 @@ class GPIORelay:
 # GPIO Controller
 # =============================================================================
 class GPIOController:
-    """
-    Controller for direct Raspberry Pi GPIO relays.
-    
-    Manages relays that are directly connected to the Pi's GPIO pins,
-    separate from the ESP32-controlled relays.
-    """
-    
+    """Controller for direct Raspberry Pi GPIO relays (native header pins)."""
+
     def __init__(self, auto_init: bool = True):
-        self._chip = None
-        self._lines: Dict[str, any] = {}
+        self._chip = None                 # v1 chip handle
+        self._request = None              # v2 line request handle
+        self._lines: Dict[str, any] = {}  # v1 per-line handles
         self._relays: Dict[str, GPIORelay] = {}
         self._initialized = False
-        
+        self.backend = "none"             # "gpiod-v2" | "gpiod-v1" | "simulated"
+        self.hardware_ok = False
+        self.chip_path: Optional[str] = None
+
         if auto_init:
             self.initialize()
-            
+
+    # -------------------------------------------------------------------------
+    # Initialisation
+    # -------------------------------------------------------------------------
     def initialize(self) -> bool:
-        """Initialize GPIO pins."""
         logger.info("Initializing Raspberry Pi GPIO controller...")
-        logger.info(f"GPIO Pins: {GPIO_PINS}")
-        
+        logger.info(f"GPIO Pins: {GPIO_PINS}  (active_high={GPIO_ACTIVE_STATE})")
+
         if not GPIO_AVAILABLE:
-            logger.warning("gpiod not available - creating simulated GPIO relays")
-            self._create_simulated_relays()
-            return True
-            
-        try:
-            # Open GPIO chip
-            self._chip = gpiod.Chip(GPIO_CHIP)
-            logger.info(f"Opened GPIO chip: {GPIO_CHIP}")
-            
-            # Initialize each relay pin
-            for name, pin in GPIO_PINS.items():
-                try:
-                    line = self._chip.get_line(pin)
-                    line.request(consumer="spotless_gpio", type=gpiod.LINE_REQ_DIR_OUT)
-                    
-                    # Initialize to OFF state
-                    initial_value = 0 if GPIO_ACTIVE_STATE else 1
-                    line.set_value(initial_value)
-                    
-                    self._lines[name] = line
-                    self._relays[name] = GPIORelay(name, pin, line)
-                    
-                    logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF")
-                    
-                except Exception as e:
-                    logger.error(f"  Failed to initialize GPIO {name} (pin {pin}): {e}")
-                    self._relays[name] = GPIORelay(name, pin, None)
-                    
-            self._initialized = True
-            logger.info("GPIO controller initialized successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize GPIO controller: {e}")
-            self._create_simulated_relays()
+            logger.error(
+                "gpiod is not usable on this host - relays will be SIMULATED. "
+                "If this is the real Pi, install python3-libgpiod and restart."
+            )
+            self._init_simulated()
             return False
-            
-    def _create_simulated_relays(self):
-        """Create simulated relays when GPIO is not available."""
+
+        try:
+            if GPIOD_API == "v2":
+                ok = self._init_v2()
+            else:
+                ok = self._init_v1()
+            if ok:
+                self._initialized = True
+                self.hardware_ok = True
+                logger.info(f"GPIO controller initialized ({self.backend}, chip={self.chip_path})")
+                return True
+            raise RuntimeError("no GPIO lines could be initialised")
+        except Exception as e:
+            logger.error(f"Failed to initialize GPIO controller ({GPIOD_API}): {e}")
+            logger.error("Falling back to SIMULATED relays - hardware will NOT switch.")
+            self._init_simulated()
+            return False
+
+    # ---- chip discovery -----------------------------------------------------
+    def _discover_chip_path(self) -> Optional[str]:
+        """Find the 40-pin header chip by label, fall back to known paths."""
+        paths = sorted(glob.glob("/dev/gpiochip*"))
+        # 1) Prefer a chip whose label looks like the RP1 header controller.
+        for path in paths:
+            label = self._chip_label(path)
+            if label and any(h in label.lower() for h in GPIO_CHIP_LABEL_HINTS):
+                return path
+        # 2) Known candidate paths that exist.
+        for path in GPIO_CHIP_CANDIDATES:
+            if os.path.exists(path):
+                return path
+        # 3) Anything at all.
+        return paths[0] if paths else None
+
+    def _chip_label(self, path: str) -> Optional[str]:
+        try:
+            if GPIOD_API == "v2":
+                chip = gpiod.Chip(path)
+                try:
+                    return chip.get_info().label
+                finally:
+                    chip.close()
+            else:  # v1
+                chip = gpiod.Chip(path)
+                try:
+                    # v1: Chip.label or name()
+                    return getattr(chip, "label", None) or chip.name()
+                finally:
+                    chip.close()
+        except Exception:
+            return None
+
+    # ---- libgpiod v2 --------------------------------------------------------
+    def _init_v2(self) -> bool:
+        self.chip_path = self._discover_chip_path()
+        if not self.chip_path:
+            raise RuntimeError("no /dev/gpiochip* device found")
+
+        off_value = _V2_Value.ACTIVE if not _physical_high(False) else _V2_Value.INACTIVE
+        # Build one request for all relay pins, initialised to OFF.
+        config = {}
+        for name, pin in GPIO_PINS.items():
+            config[pin] = gpiod.LineSettings(
+                direction=_V2_Direction.OUTPUT,
+                output_value=off_value,
+            )
+
+        if hasattr(gpiod, "request_lines"):
+            self._request = gpiod.request_lines(
+                self.chip_path, consumer="spotless_gpio", config=config
+            )
+        else:  # some 2.x builds only expose Chip.request_lines
+            chip = gpiod.Chip(self.chip_path)
+            self._request = chip.request_lines(consumer="spotless_gpio", config=config)
+
+        for name, pin in GPIO_PINS.items():
+            self._relays[name] = GPIORelay(name, pin, self._make_v2_writer(pin))
+            logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF")
+
+        self.backend = "gpiod-v2"
+        return True
+
+    def _make_v2_writer(self, pin: int) -> Callable[[bool], bool]:
+        def _write(state: bool) -> bool:
+            value = _V2_Value.ACTIVE if _physical_high(state) else _V2_Value.INACTIVE
+            self._request.set_value(pin, value)
+            return True
+        return _write
+
+    # ---- libgpiod v1 --------------------------------------------------------
+    def _init_v1(self) -> bool:
+        self.chip_path = self._discover_chip_path() or GPIO_CHIP_CANDIDATES[0]
+        self._chip = gpiod.Chip(self.chip_path)
+        logger.info(f"Opened GPIO chip: {self.chip_path}")
+
+        initial_value = 1 if _physical_high(False) else 0
+        any_ok = False
+        for name, pin in GPIO_PINS.items():
+            try:
+                line = self._chip.get_line(pin)
+                line.request(consumer="spotless_gpio", type=gpiod.LINE_REQ_DIR_OUT)
+                line.set_value(initial_value)
+                self._lines[name] = line
+                self._relays[name] = GPIORelay(name, pin, self._make_v1_writer(line))
+                any_ok = True
+                logger.info(f"  Initialized GPIO {name}: pin {pin} - OFF")
+            except Exception as e:
+                logger.error(f"  Failed to initialize GPIO {name} (pin {pin}): {e}")
+                self._relays[name] = GPIORelay(name, pin, None)
+
+        self.backend = "gpiod-v1"
+        return any_ok
+
+    def _make_v1_writer(self, line) -> Callable[[bool], bool]:
+        def _write(state: bool) -> bool:
+            line.set_value(1 if _physical_high(state) else 0)
+            return True
+        return _write
+
+    # ---- simulated ----------------------------------------------------------
+    def _init_simulated(self):
+        self._relays.clear()
         for name, pin in GPIO_PINS.items():
             self._relays[name] = GPIORelay(name, pin, None)
-            logger.info(f"  Created simulated GPIO {name}: pin {pin}")
+            logger.info(f"  Created SIMULATED GPIO {name}: pin {pin}")
+        self.backend = "simulated"
+        self.hardware_ok = False
         self._initialized = True
-        
+
+    # -------------------------------------------------------------------------
+    # Cleanup
+    # -------------------------------------------------------------------------
     def cleanup(self):
-        """Cleanup GPIO resources."""
         logger.info("Cleaning up GPIO controller...")
-        
-        # Turn off all relays first
-        self.all_off()
-        
-        # Release GPIO lines
+        try:
+            self.all_off()
+        except Exception:
+            pass
+
+        # v2: release the single request.
+        if self._request is not None:
+            try:
+                self._request.release()
+            except Exception as e:
+                logger.warning(f"Error releasing GPIO request: {e}")
+            self._request = None
+
+        # v1: release each line + chip.
         for name, line in self._lines.items():
             try:
                 if line is not None:
                     line.release()
-                    logger.debug(f"Released GPIO line: {name}")
             except Exception as e:
                 logger.warning(f"Error releasing GPIO {name}: {e}")
-                
         self._lines.clear()
+        if self._chip is not None:
+            try:
+                self._chip.close()
+            except Exception:
+                pass
+            self._chip = None
+
         self._initialized = False
         logger.info("GPIO controller cleanup complete")
-        
+
     # =========================================================================
     # Relay Access Properties
     # =========================================================================
-    
     @property
     def dry(self) -> GPIORelay:
-        """Access dry relay (GPIO 14)."""
         return self._relays.get("dry")
-    
+
     @property
     def roof(self) -> GPIORelay:
-        """Access roof tubelight relay (GPIO 15)."""
         return self._relays.get("roof")
 
     @property
     def geyser(self) -> GPIORelay:
-        """Access geyser relay (GPIO 18)."""
         return self._relays.get("geyser")
 
     @property
     def top(self) -> GPIORelay:
-        """Access flush top-nozzle relay (GPIO 20)."""
         return self._relays.get("top")
 
     @property
     def bottom(self) -> GPIORelay:
-        """Access flush bottom-nozzle relay (GPIO 21)."""
         return self._relays.get("bottom")
 
     @property
     def rglight(self) -> GPIORelay:
-        """Access red/green indicator light relay (GPIO 24)."""
         return self._relays.get("rglight")
-        
+
     # =========================================================================
     # Control Methods
     # =========================================================================
-    
     def get_relay(self, name: str) -> Optional[GPIORelay]:
-        """Get a relay by name."""
         return self._relays.get(name)
-        
+
     def set_relay(self, name: str, state: bool) -> bool:
-        """Set a relay state by name."""
         relay = self._relays.get(name)
         if relay:
             return relay.set(state)
         logger.error(f"Unknown GPIO relay: {name}")
         return False
-        
+
     def all_off(self) -> bool:
-        """Turn off all GPIO relays."""
         logger.info("Turning OFF all GPIO relays")
         success = True
         for name, relay in self._relays.items():
             if not relay.off():
                 success = False
         return success
-        
+
     def all_on(self) -> bool:
-        """Turn on all GPIO relays (use with caution!)."""
         logger.warning("Turning ON all GPIO relays")
         success = True
         for name, relay in self._relays.items():
             if not relay.on():
                 success = False
         return success
-        
+
     def get_states(self) -> Dict[str, bool]:
-        """Get states of all relays."""
         return {name: relay.state for name, relay in self._relays.items()}
-        
+
     def list_relays(self) -> List[Dict]:
-        """List all configured GPIO relays."""
         return [
-            {
-                "name": name,
-                "pin": relay.pin,
-                "state": "ON" if relay.state else "OFF"
-            }
+            {"name": name, "pin": relay.pin, "state": "ON" if relay.state else "OFF"}
             for name, relay in self._relays.items()
         ]
-        
+
     def print_status(self):
-        """Print status of all GPIO relays."""
         print("\n" + "=" * 50)
         print("  Raspberry Pi GPIO Relays - Status")
+        print(f"  backend={self.backend}  hardware_ok={self.hardware_ok}  chip={self.chip_path}")
         print("=" * 50)
         for name, relay in self._relays.items():
             state_str = "ON" if relay.state else "OFF"
             print(f"  {name:10} (GPIO {relay.pin:2}): {state_str}")
         print("=" * 50 + "\n")
-        
+
     # =========================================================================
     # Context Manager Support
     # =========================================================================
-    
     def __enter__(self):
         if not self._initialized:
             self.initialize()
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.cleanup()
         return False
@@ -311,8 +446,8 @@ class GPIOController:
 # =============================================================================
 _gpio_instance: Optional[GPIOController] = None
 
+
 def get_gpio_controller() -> GPIOController:
-    """Get or create the global GPIO controller instance."""
     global _gpio_instance
     if _gpio_instance is None:
         _gpio_instance = GPIOController()
@@ -323,19 +458,18 @@ def get_gpio_controller() -> GPIOController:
 # Convenience Functions
 # =============================================================================
 def dry_on():
-    """Turn on dryer relay."""
     return get_gpio_controller().dry.on()
 
+
 def dry_off():
-    """Turn off dryer relay."""
     return get_gpio_controller().dry.off()
 
+
 def geyser_on():
-    """Turn on geyser relay."""
     return get_gpio_controller().geyser.on()
 
+
 def geyser_off():
-    """Turn off geyser relay."""
     return get_gpio_controller().geyser.off()
 
 
@@ -343,25 +477,32 @@ def geyser_off():
 # Main - Test when run directly
 # =============================================================================
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    
+    import time
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+
     print("GPIO Controller Test")
     print("-" * 40)
-    
+    print(f"gpiod available : {GPIO_AVAILABLE}  (API: {GPIOD_API})")
+
     gpio = GPIOController()
     gpio.print_status()
-    
-    print("\nTesting dry relay...")
-    gpio.dry.on()
-    gpio.print_status()
-    
-    print("\nTesting geyser relay...")
-    gpio.geyser.on()
-    gpio.print_status()
-    
+
+    if not gpio.hardware_ok:
+        print("\n[!] Running in SIMULATED mode - no real switching will happen.")
+        print("    On the Pi: sudo apt install python3-libgpiod  (then re-run).")
+
+    # Walk every relay for 1s so you can hear/see each click.
+    for name in GPIO_PINS:
+        print(f"\nPulsing {name} for 1s...")
+        gpio.set_relay(name, True)
+        time.sleep(1)
+        gpio.set_relay(name, False)
+
     print("\nAll off...")
     gpio.all_off()
     gpio.print_status()
-    
+
     gpio.cleanup()
     print("\nTest complete!")

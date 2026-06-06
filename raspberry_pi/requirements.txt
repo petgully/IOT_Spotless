@@ -8,9 +8,11 @@
 paho-mqtt>=1.6.0
 
 # GPIO Control for Raspberry Pi 5 (direct GPIO relays)
-# Install on Raspberry Pi: sudo apt install python3-gpiod
-# Or via pip: pip install gpiod
-gpiod>=1.5.0
+# Pi 5 / Bookworm uses libgpiod 2.x. Install on the Pi with:
+#   sudo apt install python3-libgpiod
+# Or via pip (inside the venv): pip install "gpiod>=2.1"
+# NOTE: gpio_controller.py also supports the older 1.x API as a fallback.
+gpiod>=2.1.0
 
 # Web Kiosk (Flask + WebSocket)
 flask>=2.3.0
