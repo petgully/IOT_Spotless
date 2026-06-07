@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Module test{% endblock %}
+
+{% block content %}
+<style>
+  .mod-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0,1fr)); }
+  @media (max-width: 760px) { .mod-grid { grid-template-columns: 1fr; } }
+
+  .mod {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; border-radius: 10px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    transition: border-color .2s ease, background .2s ease;
+  }
+  .mod.on { border-color: rgba(52,201,122,0.5); background: rgba(52,201,122,0.08); }
+  .mod-info { min-width: 0; }
+  .mod-name { font-weight: 600; font-size: 1.02rem; }
+  .mod-hint { color: var(--text-muted); font-size: 0.82rem; margin-top: 2px; }
+
+  /* Toggle switch */
+  .switch { position: relative; display: inline-block; width: 56px; height: 30px; flex: 0 0 auto; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: #3a4654; border-radius: 999px; transition: background .2s ease;
+  }
+  .slider::before {
+    content: ""; position: absolute; height: 24px; width: 24px; left: 3px; top: 3px;
+    background: #e6edf3; border-radius: 50%; transition: transform .2s ease;
+  }
+  .switch input:checked + .slider { background: var(--ok); }
+  .switch input:checked + .slider::before { transform: translateX(26px); }
+  .switch input:disabled + .slider { opacity: 0.45; cursor: not-allowed; }
+
+  .energized { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 6px 12px; border-radius: 999px; font-size: 0.88rem;
+    background: rgba(52,201,122,0.15); color: var(--ok);
+    border: 1px solid rgba(52,201,122,0.4); font-weight: 500;
+  }
+  .chip .tok { color: var(--text-muted); font-weight: 400; font-size: 0.82em; margin-left: 4px; }
+  .empty-note { color: var(--text-muted); font-style: italic; }
+  .btn-danger { background: var(--err); border-color: var(--err); color: #1a0606; }
+  .btn-danger:hover { background: #ff8585; border-color: #ff8585; color: #1a0606; }
+</style>
+
+<section class="grid grid-2">
+  <div class="card">
+    <h2>Module test</h2>
+    <p class="muted">
+      Turn any module ON and it <strong>stays on until you turn it off</strong>
+      — there is no timer. Use this to watch how each fluid line, pump or
+      nozzle behaves on its own. Toggle a module off (or hit
+      <strong>All off</strong>) when you're done.
+    </p>
+
+    <div class="selftest-bar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;">
+      <button id="btnAllOff" class="btn btn-danger">All off</button>
+      <span id="conn" class="pill">checking…</span>
+    </div>
+
+    <div class="mod-grid" id="modGrid">
+      {% for m in plan %}
+      <div class="mod" id="mod-{{ m.key }}">
+        <div class="mod-info">
+          <div class="mod-name">{{ m.label }}</div>
+          <div class="mod-hint">{{ m.hint }}</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" class="mod-toggle" data-key="{{ m.key }}">
+          <span class="slider"></span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="muted" style="margin-top:14px;">
+      Safety: module test refuses to run while a bath or the equipment
+      self-test is in progress. Peristaltic dosing pumps (shampoo /
+      conditioner / disinfectant) keep dosing while ON — don't leave them
+      running longer than needed.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Currently energised</h2>
+    <p class="muted">Live list of every relay that is switched ON right now.</p>
+    <ul class="energized" id="energized">
+      <li class="empty-note" id="emptyNote">Nothing is on.</li>
+    </ul>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const stateUrl  = "{{ url_for('operator_admin.api_module_test_state') }}";
+  const toggleUrl = "{{ url_for('operator_admin.api_module_test_toggle') }}";
+  const allOffUrl = "{{ url_for('operator_admin.api_module_test_all_off') }}";
+
+  const conn      = document.getElementById('conn');
+  const energized = document.getElementById('energized');
+  const emptyNote = document.getElementById('emptyNote');
+  const btnAllOff = document.getElementById('btnAllOff');
+  const toggles   = Array.from(document.querySelectorAll('.mod-toggle'));
+
+  // token -> friendly label, embedded server-side so chips read nicely.
+  const LABELS = {{ plan | tojson }}.reduce((acc, m) => {
+    m.devices.forEach(d => { acc[d.token] = d.label; });
+    return acc;
+  }, {});
+
+  function setConn(text, cls) { conn.textContent = text; conn.className = 'pill ' + cls; }
+
+  async function postJSON(url, body) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    let data = {};
+    try { data = await r.json(); } catch (e) {}
+    return { ok: r.ok && data.ok !== false, data };
+  }
+
+  function renderState(state) {
+    const modules = (state && state.modules) || {};
+    toggles.forEach(t => {
+      const on = !!modules[t.dataset.key];
+      t.checked = on;
+      const card = document.getElementById('mod-' + t.dataset.key);
+      if (card) card.classList.toggle('on', on);
+    });
+
+    const list = (state && state.energized) || [];
+    energized.innerHTML = '';
+    if (!list.length) {
+      energized.appendChild(emptyNote);
+      emptyNote.style.display = '';
+    } else {
+      list.forEach(tok => {
+        const li = document.createElement('li');
+        li.className = 'chip';
+        const label = LABELS[tok] || tok;
+        li.innerHTML = label + '<span class="tok">' + tok + '</span>';
+        energized.appendChild(li);
+      });
+    }
+  }
+
+  toggles.forEach(t => {
+    t.addEventListener('change', async () => {
+      const key = t.dataset.key;
+      const desired = t.checked;
+      toggles.forEach(x => x.disabled = true);
+      const { ok, data } = await postJSON(toggleUrl, { module: key, on: desired });
+      toggles.forEach(x => x.disabled = false);
+      if (!ok) {
+        t.checked = !desired;  // revert optimistic flip
+        setConn(data.error || 'toggle failed', 'pill-err');
+        return;
+      }
+      renderState(data.state);
+      setConn('live', 'pill-ok');
+    });
+  });
+
+  btnAllOff.addEventListener('click', async () => {
+    btnAllOff.disabled = true;
+    const { ok, data } = await postJSON(allOffUrl, {});
+    btnAllOff.disabled = false;
+    if (!ok) { setConn(data.error || 'all-off failed', 'pill-err'); return; }
+    renderState(data.state);
+    setConn('live', 'pill-ok');
+  });
+
+  async function refresh() {
+    try {
+      const r = await fetch(stateUrl);
+      const s = await r.json();
+      if (!s.available) {
+        setConn('controller offline', 'pill-warn');
+        toggles.forEach(x => x.disabled = true);
+        return;
+      }
+      const busy = !!s.session_active;
+      toggles.forEach(x => x.disabled = busy);
+      setConn(busy ? 'session running' : 'live', busy ? 'pill-warn' : 'pill-ok');
+      renderState(s.state);
+    } catch (e) {
+      setConn('offline', 'pill-warn');
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+{% endblock %}
