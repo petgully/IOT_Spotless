@@ -28,7 +28,7 @@ spotless_functions.py so what the operator sees here matches a real bath:
     WATER_LINE_DEVICES     = s8, s5, s2, s4, pump
     flush_top / flush_bottom = flushmain, pump, gpio:top|bottom
     priming shampoo        = fill (s8,s1,ro1) 60s -> drain (d1,ro2) 10s
-    priming disinfectant   = fill (s8,s2,ro3) 60s -> drain (d2,ro4) 10s
+    priming disinfectant   = fill (s8,s3,ro3) 60s -> drain (d2,ro4) 10s
     empty tank             = d1, ro2, d2, ro4           (legacy Empty_tank/drain)
 
 Reference counting: modules share devices (shampoo + conditioner both use the
@@ -112,7 +112,7 @@ MANUAL_MODULES: Dict[str, Dict[str, Any]] = {
         "type": "sequence",
         "hint": "Fill disinfectant line 60s, then drain 10s (auto-off).",
         "phases": [
-            {"label": "Filling",  "seconds": 60, "devices": ["s8", "s2", "ro3"]},
+            {"label": "Filling",  "seconds": 60, "devices": ["s8", "s3", "ro3"]},
             {"label": "Draining", "seconds": 10, "devices": ["d2", "ro4"]},
         ],
     },
