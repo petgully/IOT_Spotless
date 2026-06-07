@@ -16,13 +16,13 @@ Usage:
     # With DeviceController
     dc = DeviceController(node_controller)
     dc.p1.on()       # Turn on peristaltic pump 1 (shampoo)
-    dc.pump.on()     # Turn on booster pump (220V)
-    dc.top.on()      # Turn on flush top nozzle
-    dc.flushmain.on() # Turn on autoflush gate (220V)
+    dc.p2.on()       # Turn on peristaltic pump 2 (conditioner)
+    # Note: pump, flushmain and s8 are now Pi-direct GPIO (gpio_controller),
+    # addressed as "gpio:pump" / "gpio:flushmain" / "gpio:s8" in stage data.
 
 Node/Relay Mapping (BACK2 / Relay 7 retired — faulty relay channel):
     NODE 1 (spotless_node1) — Container 1 system:
-        pump → S1       (Relay 1) - Booster Pump 220V
+        --   → S1       (Relay 1) - UNUSED (pump moved to Pi GPIO 23)
         p1   → P1&P2    (Relay 2) - Peristaltic Pump 1 (Shampoo)   [moved from BACK2]
         d1   → FP1      (Relay 3) - Diaphragm Pump 1 (Push from Container 1)
         ro2  → RS1&DS2  (Relay 4) - RO Solenoid 2 (Drain Container 1)
@@ -31,7 +31,7 @@ Node/Relay Mapping (BACK2 / Relay 7 retired — faulty relay channel):
         --   → BACK2    (Relay 7) - BLANK / unused
 
     NODE 2 (spotless_node2) — Container 2 system + Autoflush:
-        flushmain→ S1       (Relay 1) - Autoflush Gate 220V
+        --       → S1       (Relay 1) - UNUSED (flushmain moved to Pi GPIO 15)
         p3       → P1&P2    (Relay 2) - Peristaltic Pump 3 (Med Shampoo) [moved from Node 1]
         d2       → FP1      (Relay 3) - Diaphragm Pump 2 (Push from Container 2)
         ro4      → RS1&DS2  (Relay 4) - RO Solenoid 4 (Drain Container 2)
@@ -40,7 +40,7 @@ Node/Relay Mapping (BACK2 / Relay 7 retired — faulty relay channel):
         --       → BACK2    (Relay 7) - BLANK / unused
 
     NODE 3 (spotless_node3) — Bath line solenoid valves:
-        s8     → S1       (Relay 1) - Main Gate 220V (bath lines)
+        --     → S1       (Relay 1) - UNUSED (s8 moved to Pi GPIO 25)
         s1     → P1&P2    (Relay 2) - Solenoid 1 (Shampoo line gate)   [moved from BACK2]
         s5     → FP1      (Relay 3) - Solenoid 5 (Water line)
         s4     → RS1&DS2  (Relay 4) - Solenoid 4 (Common valve / anti-backflow)
@@ -48,10 +48,14 @@ Node/Relay Mapping (BACK2 / Relay 7 retired — faulty relay channel):
         s2     → BACK1    (Relay 6) - Solenoid 2 (Common spray / anti-backflow)
         --     → BACK2    (Relay 7) - BLANK / unused
 
-    DISPLACED DEVICES (re-homed off the ESP32 nodes):
-        top    - Flush Top Nozzle    -> Raspberry Pi GPIO 20 (see gpio_controller.py)
-        bottom - Flush Bottom Nozzle -> Raspberry Pi GPIO 21 (see gpio_controller.py)
-        p5     - Peristaltic Pump 5 (Backup) -> DROPPED (replaced by p4 on Node 2 BACK1)
+    DISPLACED DEVICES (re-homed off the ESP32 nodes, now Pi-direct GPIO):
+        top       - Flush Top Nozzle    -> Raspberry Pi GPIO 20 (gpio_controller.py)
+        bottom    - Flush Bottom Nozzle -> Raspberry Pi GPIO 21 (gpio_controller.py)
+        pump      - Booster Pump 220V   -> Raspberry Pi GPIO 23 (gpio_controller.py)
+        flushmain - Autoflush Gate 220V -> Raspberry Pi GPIO 15 (gpio_controller.py)
+        s8        - Main Gate 220V      -> Raspberry Pi GPIO 25 (gpio_controller.py)
+        roof      - RETIRED (GPIO 15 reused by flushmain)
+        p5        - Peristaltic Pump 5 (Backup) -> DROPPED (replaced by p4 on Node 2 BACK1)
 =============================================================================
 """
 
@@ -114,8 +118,7 @@ class DeviceMap:
         # BACK2 (Relay 7) retired - faulty relay channel.
         #   p1 (shampoo pump) re-homed BACK2 -> P1_P2 (Relay 2).
         #   p3 (med shampoo) relocated to Node 2 (Relay 2). Relay 7 left blank.
-        self._add("pump", NODE_1, RELAY_S1_220V, "S1_220V",
-                  "Booster Pump 220V")
+        #   pump (Booster 220V) moved off Relay 1 -> Pi GPIO 23 ("gpio:pump").
         self._add("p1", NODE_1, RELAY_P1_P2, "P1_P2",
                   "Peristaltic Pump 1 — Shampoo")
         self._add("d1", NODE_1, RELAY_FP1, "FP1",
@@ -135,8 +138,8 @@ class DeviceMap:
         #   p3 (med shampoo, relocated from Node 1) now on P1_P2 (Relay 2).
         #   p4 (disinfectant) now on BACK1 (Relay 6) — replaced p5 backup.
         #   top -> Pi GPIO 20 (gpio_controller). Relay 7 left blank.
-        self._add("flushmain", NODE_2, RELAY_S1_220V, "S1_220V",
-                  "Autoflush Gate 220V")
+        #   flushmain (Autoflush 220V) moved off Relay 1 -> Pi GPIO 15
+        #     ("gpio:flushmain"; GPIO 15 was the retired 'roof').
         self._add("p3", NODE_2, RELAY_P1_P2, "P1_P2",
                   "Peristaltic Pump 3 — Med Shampoo")
         self._add("d2", NODE_2, RELAY_FP1, "FP1",
@@ -155,8 +158,7 @@ class DeviceMap:
         # BACK2 (Relay 7) retired - faulty relay channel.
         #   s1 (shampoo line gate) re-homed BACK2 -> P1_P2 (Relay 2).
         #   bottom -> Pi GPIO 21 (gpio_controller). Relay 7 left blank.
-        self._add("s8", NODE_3, RELAY_S1_220V, "S1_220V",
-                  "Main Gate 220V — Bath lines")
+        #   s8 (Main Gate 220V) moved off Relay 1 -> Pi GPIO 25 ("gpio:s8").
         self._add("s1", NODE_3, RELAY_P1_P2, "P1_P2",
                   "Solenoid 1 — Shampoo line gate")
         self._add("s5", NODE_3, RELAY_FP1, "FP1",
@@ -170,18 +172,21 @@ class DeviceMap:
         # Relay 7 (BACK2) — BLANK / unused
 
         # =====================================================================
-        # DISPLACED DEVICES (no longer ESP32-controlled):
-        #   top    -> Raspberry Pi GPIO 20  (gpio_controller.py / "gpio:top")
-        #   bottom -> Raspberry Pi GPIO 21  (gpio_controller.py / "gpio:bottom")
-        #   p5     -> DROPPED (backup pump; replaced by p4 on Node 2 BACK1/Relay 6)
+        # DISPLACED DEVICES (no longer ESP32-controlled — now Pi-direct GPIO):
+        #   top       -> Raspberry Pi GPIO 20  (gpio_controller.py / "gpio:top")
+        #   bottom    -> Raspberry Pi GPIO 21  (gpio_controller.py / "gpio:bottom")
+        #   pump      -> Raspberry Pi GPIO 23  (gpio_controller.py / "gpio:pump")
+        #   flushmain -> Raspberry Pi GPIO 15  (gpio_controller.py / "gpio:flushmain")
+        #   s8        -> Raspberry Pi GPIO 25  (gpio_controller.py / "gpio:s8")
+        #   roof      -> RETIRED (GPIO 15 reused by flushmain)
+        #   p5        -> DROPPED (backup pump; replaced by p4 on Node 2 BACK1/Relay 6)
         # =====================================================================
 
         # =====================================================================
         # Backward-compatible aliases (old names → new names)
         # =====================================================================
-        self._alias("s9", "flushmain")
-        # NOTE: 's6' -> bottom and 's7' -> top aliases removed for now;
-        # bottom/top are currently unassigned (pending reassignment).
+        # NOTE: 's9' -> flushmain alias removed (flushmain is now Pi GPIO, not
+        # an ESP32 device). 's6' -> bottom and 's7' -> top aliases also removed.
 
     def _add(self, name: str, node_id: str, relay_num: int,
              relay_label: str, description: str):
@@ -276,9 +281,9 @@ class DeviceController:
     Usage:
         dc = DeviceController(node_controller)
         dc.p1.on()         # Turn on shampoo pump
-        dc.pump.on()       # Turn on booster pump
-        dc.top.on()        # Turn on flush top nozzle
-        dc.flushmain.on()  # Turn on autoflush gate
+        dc.p4.on()         # Turn on disinfectant pump
+        # pump / flushmain / s8 are Pi-direct GPIO now (use the GPIOController,
+        # or address as "gpio:pump" / "gpio:flushmain" / "gpio:s8").
     """
     
     def __init__(self, node_controller):
@@ -289,14 +294,8 @@ class DeviceController:
         for name, device_info in self._devices.all_devices().items():
             self._handles[name] = DeviceHandle(device_info, node_controller)
 
-        # Also register aliases (s6 -> bottom, s7 -> top removed: those
-        # devices are currently unassigned / pending reassignment).
-        for alias in ["s9"]:
-            dev = self._devices.get(alias)
-            if dev:
-                target_name = dev.name
-                if target_name in self._handles:
-                    self._handles[alias] = self._handles[target_name]
+        # No ESP32 aliases remain: s9 -> flushmain removed (flushmain is now a
+        # Pi GPIO device), and s6/s7 -> bottom/top were removed earlier.
 
     def __getattr__(self, name: str) -> DeviceHandle:
         if name.startswith('_'):
@@ -385,10 +384,8 @@ if __name__ == "__main__":
     print(f"devices.p1       = {devices.p1}")
     print(f"devices.p3       = {devices.p3}")
     print(f"devices.s1       = {devices.s1}")
-    print(f"devices.flushmain= {devices.flushmain}")
-    print(f"devices.s8       = {devices.s8}")
+    print(f"devices.p4       = {devices.p4}")
     print("")
-    print("# Backward-compatible aliases")
-    print(f"devices.s9       = {devices.s9}  (alias for 'flushmain')")
-    print("")
+    print("# Pi-direct GPIO (not in device_map): pump->GPIO23, flushmain->GPIO15, s8->GPIO25")
+    print("#   addressed as gpio:pump / gpio:flushmain / gpio:s8")
     print("# Displaced: top -> Pi GPIO 20, bottom -> Pi GPIO 21, p5 -> dropped (p4 took BACK1)")

@@ -7,21 +7,24 @@ The live bath runner is StageExecutor (spotless_controller.py) driven by
 stage dicts from session_stages.py (see main.py). This function-based layer
 is kept for reference only. It has been updated to match the current
 hardware map (BACK2/Relay 7 retired; flush 'top'/'bottom' moved to Pi GPIO;
-p4 disinfectant pump now on Node 2 BACK1, p5 backup dropped) but is not
+p4 disinfectant pump now on Node 2 BACK1, p5 backup dropped; pump, flushmain
+and s8 moved off the ESP32 nodes onto Pi GPIO; 'roof' retired) but is not
 exercised by production.
 
 This module contains the older core functions for controlling the pet
 grooming/bathing process via ESP32 nodes and direct Raspberry Pi GPIO.
 
-Current device map (post BACK2 retirement):
+Current device map (post BACK2 retirement + GPIO re-home):
     Flush nozzles: top -> Pi GPIO 20, bottom -> Pi GPIO 21 (self.gpio.top/bottom)
-    flushmain -> s8 (ESP32 Node 2 Relay 1)
+    pump      -> Pi GPIO 23 (self.gpio.pump)
+    flushmain -> Pi GPIO 15 (self.gpio.flushmain; GPIO 15 was 'roof')
+    s8        -> Pi GPIO 25 (self.gpio.s8)
     p4 (disinfectant) -> Node 2 BACK1 / Relay 6 (replaced p5 backup)
 
 Device Summary:
-    ESP32 Devices: p1, p2, p3, p4, ro1, ro2, ro3, ro4, d1, d2,
-                   pump, s1-s5, s8, flushmain
-    Direct GPIO:   dry, roof, geyser, top, bottom, rglight
+    ESP32 Devices: p1, p2, p3, p4, ro1, ro2, ro3, ro4, d1, d2, s1-s5
+    Direct GPIO:   dry, geyser, top, bottom, rglight, flushmain, pump, s8
+                   (roof retired)
 =============================================================================
 """
 
@@ -136,20 +139,23 @@ class SpotlessController:
     def s6(self): return self.gpio.top      # flush top nozzle -> Pi GPIO 20
     @property
     def s7(self): return self.gpio.bottom   # flush bottom nozzle -> Pi GPIO 21
+    # s8 (main gate) moved to Pi GPIO 25.
     @property
-    def s8(self): return self.devices.s8    # flushmain (ESP32)
+    def s8(self): return self.gpio.s8
     @property
-    def s9(self): return self.devices.s9    # flushmain alias (ESP32)
-    
-    # Main pump
+    def s9(self): return self.gpio.flushmain  # legacy alias -> flushmain (GPIO)
     @property
-    def pump(self): return self.devices.pump
+    def flushmain(self): return self.gpio.flushmain  # Pi GPIO 15 (was 'roof')
+
+    # Main pump -> Pi GPIO 23
+    @property
+    def pump(self): return self.gpio.pump
     
     # Direct GPIO relays
     @property
     def dry(self): return self.gpio.dry
     @property
-    def roof(self): return self.gpio.roof
+    def roof(self): return self.gpio.roof   # RETIRED -> None (GPIO15 now flushmain)
     @property
     def geyser(self): return self.gpio.geyser
     @property

@@ -21,14 +21,15 @@ A device token is:
     - bare token (e.g. "p1", "s8", "pump")  -> MQTT device via DeviceController
     - "gpio:<name>" (e.g. "gpio:dry")        -> Raspberry Pi GPIO relay
 
-Device groups mirror the real session lines in session_stages.py /
-spotless_functions.py so what the operator sees here matches a real bath:
-    SHAMPOO_LINE_DEVICES   = s8, s1, s2, s4, d1, pump   (+ p1 shampoo dosing)
-    DISINFECT_LINE_DEVICES = s8, s3, s4, s2, d2, pump   (+ p4 disinfect dosing)
-    WATER_LINE_DEVICES     = s8, s5, s2, s4, pump
-    flush_top / flush_bottom = flushmain, pump, gpio:top|bottom
-    priming shampoo        = fill (s8,s1,ro1) 60s -> drain (d1,ro2) 10s
-    priming disinfectant   = fill (s8,s3,ro3) 60s -> drain (d2,ro4) 10s
+Device groups mirror the real session lines in session_stages.py so what the
+operator sees here matches a real bath. NOTE: s8, pump and flushmain are now
+Pi-direct GPIO, so they appear as gpio:s8 / gpio:pump / gpio:flushmain:
+    SHAMPOO_LINE_DEVICES   = gpio:s8, s1, s2, s4, d1, gpio:pump  (+ p1 dosing)
+    DISINFECT_LINE_DEVICES = gpio:s8, s3, s4, s2, d2, gpio:pump  (+ p4 dosing)
+    WATER_LINE_DEVICES     = gpio:s8, s5, s2, s4, gpio:pump
+    flush_top / flush_bottom = gpio:flushmain, gpio:pump, gpio:top|bottom
+    priming shampoo        = fill (gpio:s8,s1,ro1) 60s -> drain (d1,ro2) 10s
+    priming disinfectant   = fill (gpio:s8,s3,ro3) 60s -> drain (d2,ro4) 10s
     empty tank             = d1, ro2, d2, ro4           (legacy Empty_tank/drain)
 
 Reference counting: modules share devices (shampoo + conditioner both use the
@@ -60,25 +61,25 @@ MANUAL_MODULES: Dict[str, Dict[str, Any]] = {
         "label": "Shampoo",
         "type": "latch",
         "hint": "Shampoo line open + shampoo dosing pump (p1).",
-        "devices": ["s8", "s1", "s2", "s4", "d1", "pump", "p1"],
+        "devices": ["gpio:s8", "s1", "s2", "s4", "d1", "gpio:pump", "p1"],
     },
     "conditioner": {
         "label": "Conditioner",
         "type": "latch",
         "hint": "Same bath line as shampoo + conditioner dosing pump (p2).",
-        "devices": ["s8", "s1", "s2", "s4", "d1", "pump", "p2"],
+        "devices": ["gpio:s8", "s1", "s2", "s4", "d1", "gpio:pump", "p2"],
     },
     "disinfectant": {
         "label": "Disinfectant",
         "type": "latch",
         "hint": "Disinfectant line open + disinfectant dosing pump (p4).",
-        "devices": ["s8", "s3", "s4", "s2", "d2", "pump", "p4"],
+        "devices": ["gpio:s8", "s3", "s4", "s2", "d2", "gpio:pump", "p4"],
     },
     "water": {
         "label": "Water",
         "type": "latch",
         "hint": "Plain water rinse line (no dosing pump).",
-        "devices": ["s8", "s5", "s2", "s4", "pump"],
+        "devices": ["gpio:s8", "s5", "s2", "s4", "gpio:pump"],
     },
     "dryer": {
         "label": "Dryer",
@@ -90,20 +91,20 @@ MANUAL_MODULES: Dict[str, Dict[str, Any]] = {
         "label": "Cleanup Top",
         "type": "latch",
         "hint": "Top flush nozzle opened (bottom stays closed).",
-        "devices": ["flushmain", "pump", "gpio:top"],
+        "devices": ["gpio:flushmain", "gpio:pump", "gpio:top"],
     },
     "cleanup_bottom": {
         "label": "Cleanup Bottom",
         "type": "latch",
         "hint": "Bottom flush nozzle opened (top stays closed).",
-        "devices": ["flushmain", "pump", "gpio:bottom"],
+        "devices": ["gpio:flushmain", "gpio:pump", "gpio:bottom"],
     },
     "priming_shampoo": {
         "label": "Priming Shampoo",
         "type": "sequence",
         "hint": "Fill shampoo line 60s, then drain 10s (auto-off).",
         "phases": [
-            {"label": "Filling",  "seconds": 60, "devices": ["s8", "s1", "ro1"]},
+            {"label": "Filling",  "seconds": 60, "devices": ["gpio:s8", "s1", "ro1"]},
             {"label": "Draining", "seconds": 10, "devices": ["d1", "ro2"]},
         ],
     },
@@ -112,7 +113,7 @@ MANUAL_MODULES: Dict[str, Dict[str, Any]] = {
         "type": "sequence",
         "hint": "Fill disinfectant line 60s, then drain 10s (auto-off).",
         "phases": [
-            {"label": "Filling",  "seconds": 60, "devices": ["s8", "s3", "ro3"]},
+            {"label": "Filling",  "seconds": 60, "devices": ["gpio:s8", "s3", "ro3"]},
             {"label": "Draining", "seconds": 10, "devices": ["d2", "ro4"]},
         ],
     },

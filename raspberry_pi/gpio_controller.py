@@ -29,14 +29,16 @@ Usage:
     from gpio_controller import GPIOController
 
     gpio = GPIOController()
-    gpio.dry.on()      # Turn on dryer
-    gpio.dry.off()     # Turn off dryer
-    gpio.geyser.on()   # Turn on geyser
-    gpio.roof.on()     # Turn on roof tubelight
-    gpio.top.on()      # Turn on flush top nozzle
-    gpio.bottom.on()   # Turn on flush bottom nozzle
-    gpio.rglight.on()  # Turn on indicator light
-    gpio.all_off()     # Turn off all GPIO relays
+    gpio.dry.on()        # Turn on dryer
+    gpio.dry.off()       # Turn off dryer
+    gpio.geyser.on()     # Turn on geyser
+    gpio.flushmain.on()  # Turn on autoflush gate (was 'roof' pin)
+    gpio.pump.on()       # Turn on booster pump
+    gpio.s8.on()         # Turn on main gate (bath lines)
+    gpio.top.on()        # Turn on flush top nozzle
+    gpio.bottom.on()     # Turn on flush bottom nozzle
+    gpio.rglight.on()    # Turn on indicator light
+    gpio.all_off()       # Turn off all GPIO relays
 =============================================================================
 """
 
@@ -92,13 +94,17 @@ GPIO_CHIP_CANDIDATES = ("/dev/gpiochip0", "/dev/gpiochip4")
 GPIO_CHIP_LABEL_HINTS = ("pinctrl-rp1", "rp1")
 
 # Direct GPIO Relay Pins (BCM numbering)
+# NOTE: 'roof' retired - GPIO 15 is now 'flushmain' (autoflush gate, moved off
+# ESP32). 's8' and 'pump' also moved off the ESP32 nodes onto direct Pi GPIO.
 GPIO_PINS = {
-    "dry": 14,      # Dryer Relay - GPIO 14
-    "roof": 15,     # Roof Light (tubelight) - GPIO 15
-    "geyser": 18,   # Geyser/Heater Relay - GPIO 18
-    "top": 20,      # Flush Top Nozzle - GPIO 20 (moved from ESP32 Node 2)
-    "bottom": 21,   # Flush Bottom Nozzle - GPIO 21 (moved from ESP32 Node 3)
-    "rglight": 24,  # Red/Green Indicator Light - GPIO 24
+    "dry": 14,        # Dryer Relay - GPIO 14
+    "flushmain": 15,  # Autoflush Gate 220V - GPIO 15 (moved from ESP32; was 'roof')
+    "geyser": 18,     # Geyser/Heater Relay - GPIO 18
+    "top": 20,        # Flush Top Nozzle - GPIO 20 (moved from ESP32 Node 2)
+    "bottom": 21,     # Flush Bottom Nozzle - GPIO 21 (moved from ESP32 Node 3)
+    "pump": 23,       # Booster Pump 220V - GPIO 23 (moved from ESP32 Node 1)
+    "rglight": 24,    # Red/Green Indicator Light - GPIO 24
+    "s8": 25,         # Main Gate 220V (bath lines) - GPIO 25 (moved from ESP32)
 }
 
 # Relay active state. Most channels are driven through an NPN transistor
@@ -107,8 +113,10 @@ GPIO_ACTIVE_STATE = True  # default for relays NOT listed in GPIO_ACTIVE_LOW
 
 # Per-relay overrides: these channels are wired ACTIVE-LOW (relay ON when the
 # pin is LOW). They were observed energised at boot and inverted vs the rest,
-# so we drive them the opposite way to the default.
-GPIO_ACTIVE_LOW = {"dry", "geyser", "roof"}
+# so we drive them the opposite way to the default. dry + geyser were the
+# original two; s8, flushmain and pump (newly moved onto Pi GPIO) are wired the
+# same active-LOW way on this relay board.
+GPIO_ACTIVE_LOW = {"dry", "geyser", "s8", "flushmain", "pump"}
 
 
 def _relay_active_high(name: str) -> bool:
@@ -374,7 +382,21 @@ class GPIOController:
 
     @property
     def roof(self) -> GPIORelay:
+        # 'roof' retired (GPIO 15 reused by flushmain). Returns None so the
+        # optional RoofLightController degrades to a harmless no-op.
         return self._relays.get("roof")
+
+    @property
+    def flushmain(self) -> GPIORelay:
+        return self._relays.get("flushmain")
+
+    @property
+    def pump(self) -> GPIORelay:
+        return self._relays.get("pump")
+
+    @property
+    def s8(self) -> GPIORelay:
+        return self._relays.get("s8")
 
     @property
     def geyser(self) -> GPIORelay:

@@ -47,7 +47,7 @@ NODES_CONFIG = {
     "spotless_node1": {
         "name": "ESP32 Node 1",
         "relays": {
-            1: {"label": "S1_220V", "description": "220V Solenoid", "device": "pump", "has_led": False},
+            1: {"label": "S1_220V", "description": "220V Solenoid (UNUSED — pump moved to Pi GPIO 23)", "device": None, "has_led": False},
             2: {"label": "P1_P2", "description": "Pumps P1 & P2", "device": "p1", "has_led": False},
             3: {"label": "FP1", "description": "Flow Pump 1", "device": "d1", "has_led": True, "led": "LED_SHAMPOO"},
             4: {"label": "RS1_DS2", "description": "RO Sol 1 & Dia Sol 2", "device": "ro1", "has_led": True, "led": "LED_WATER"},
@@ -59,7 +59,7 @@ NODES_CONFIG = {
     "spotless_node2": {
         "name": "ESP32 Node 2",
         "relays": {
-            1: {"label": "S1_220V", "description": "220V Solenoid", "device": "s9", "has_led": False},
+            1: {"label": "S1_220V", "description": "220V Solenoid (UNUSED — flushmain moved to Pi GPIO 15)", "device": None, "has_led": False},
             2: {"label": "P1_P2", "description": "Pumps P1 & P2", "device": "p3", "has_led": False},
             3: {"label": "FP1", "description": "Flow Pump 1", "device": "d2", "has_led": True, "led": "LED_SHAMPOO"},
             4: {"label": "RS1_DS2", "description": "RO Sol 1 & Dia Sol 2", "device": "ro3", "has_led": True, "led": "LED_WATER"},
@@ -71,7 +71,7 @@ NODES_CONFIG = {
     "spotless_node3": {
         "name": "ESP32 Node 3",
         "relays": {
-            1: {"label": "S1_220V", "description": "220V Solenoid", "device": "s8", "has_led": False},
+            1: {"label": "S1_220V", "description": "220V Solenoid (UNUSED — s8 moved to Pi GPIO 25)", "device": None, "has_led": False},
             2: {"label": "P1_P2", "description": "Pumps P1 & P2", "device": "s1", "has_led": False},
             3: {"label": "FP1", "description": "Flow Pump 1", "device": "s5", "has_led": True, "led": "LED_SHAMPOO"},
             4: {"label": "RS1_DS2", "description": "RO Sol 1 & Dia Sol 2", "device": "s3", "has_led": True, "led": "LED_WATER"},

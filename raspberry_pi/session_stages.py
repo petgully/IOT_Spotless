@@ -29,8 +29,9 @@ Stage dict fields:
     duration      - Stage budget in seconds (anti-fraud accounting)
     image         - Image filename for the kiosk UI
     devices_on    - List of device names to turn ON (from device_map).
-                    Supports MQTT devices (p1, s8, pump, etc.) and
-                    GPIO devices prefixed with "gpio:" (gpio:dry, gpio:roof).
+                    Supports MQTT devices (p1, p4, s1, etc.) and
+                    GPIO devices prefixed with "gpio:" (gpio:dry, gpio:pump,
+                    gpio:flushmain, gpio:s8).
     parallel_pump - Optional dict: {"device": "p1", "duration": 30}
                     Runs a peristaltic pump in parallel (non-blocking).
     audio         - Optional audio key to play at stage start.
@@ -127,9 +128,11 @@ def size_to_profile(size: Optional[str]) -> str:
 # =============================================================================
 # Device groups (cached labels for fluid lines)
 # =============================================================================
-SHAMPOO_LINE_DEVICES  = ["s8", "s1", "s2", "s4", "d1", "pump"]
-DISINFECT_LINE_DEVICES = ["s8", "s3", "s4", "s2", "d2", "pump"]
-WATER_LINE_DEVICES    = ["s8", "s5", "s2", "s4", "pump"]
+# NOTE: s8 (main gate) and pump (booster) moved onto Pi-direct GPIO, so they
+# are addressed with the 'gpio:' prefix; the rest stay MQTT (ESP32) devices.
+SHAMPOO_LINE_DEVICES   = ["gpio:s8", "s1", "s2", "s4", "d1", "gpio:pump"]
+DISINFECT_LINE_DEVICES = ["gpio:s8", "s3", "s4", "s2", "d2", "gpio:pump"]
+WATER_LINE_DEVICES     = ["gpio:s8", "s5", "s2", "s4", "gpio:pump"]
 
 
 # =============================================================================
@@ -186,7 +189,7 @@ def _prime_shampoo_stages(fill_dur: int, empty_dur: int,
     """
     return [
         _relay_stage(f"prime_fill{suffix}",  "Preparing System", fill_dur,
-                     "preparing.png", ["s8", "s1", "ro1"], show_timer=False),
+                     "preparing.png", ["gpio:s8", "s1", "ro1"], show_timer=False),
         _relay_stage(f"prime_empty{suffix}", "Preparing System", empty_dur,
                      "preparing.png", ["d1", "ro2"], show_timer=False),
     ]
@@ -196,7 +199,7 @@ def _prime_disinfectant_stages(fill_dur: int, empty_dur: int) -> List[Dict]:
     """Priming stages for Container 2 (disinfectant line)."""
     return [
         _relay_stage("prime_dis_fill",  "Preparing Disinfectant", fill_dur,
-                     "preparing.png", ["s8", "s3", "ro3"], show_timer=False),
+                     "preparing.png", ["gpio:s8", "s3", "ro3"], show_timer=False),
         _relay_stage("prime_dis_empty", "Preparing Disinfectant", empty_dur,
                      "preparing.png", ["d2", "ro4"], show_timer=False),
     ]
@@ -214,15 +217,16 @@ def _drain_stages(dur: int) -> List[Dict]:
 def _flush_stages(dur: int) -> List[Dict]:
     """Autoflush - bottom first, then top (contract section 6.2).
 
-    Note: the flush nozzles 'top' and 'bottom' moved off the ESP32 nodes
-    onto direct Raspberry Pi GPIO (top=GPIO20, bottom=GPIO21), so they are
+    Note: the flush nozzles 'top'/'bottom' plus 'flushmain' (autoflush gate)
+    and 'pump' (booster) all live on direct Raspberry Pi GPIO now
+    (top=GPIO20, bottom=GPIO21, flushmain=GPIO15, pump=GPIO23), so they are
     addressed with the 'gpio:' prefix here.
     """
     return [
         _relay_stage("flush_bottom", "Cleaning Tub - Bottom", dur,
-                     "flush.png", ["flushmain", "gpio:bottom", "pump"]),
+                     "flush.png", ["gpio:flushmain", "gpio:bottom", "gpio:pump"]),
         _relay_stage("flush_top",    "Cleaning Tub - Top", dur,
-                     "flush.png", ["flushmain", "gpio:top", "pump"]),
+                     "flush.png", ["gpio:flushmain", "gpio:top", "gpio:pump"]),
     ]
 
 

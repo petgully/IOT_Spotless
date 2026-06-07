@@ -21,8 +21,9 @@ session_stages.py and executes them with:
     cloud writes (contract §8.3).
 
 Device name conventions in stage configs (same as before):
-    "p1", "s8", "pump"  -> MQTT device (via DeviceController)
-    "gpio:dry"          -> Direct Raspberry Pi GPIO (via GPIOController)
+    "p1", "p4", "s1"        -> MQTT device (via DeviceController)
+    "gpio:dry", "gpio:pump",
+    "gpio:flushmain", "gpio:s8" -> Direct Raspberry Pi GPIO (via GPIOController)
 
 Public API:
     executor = StageExecutor(device_controller, gpio_controller)
@@ -66,11 +67,14 @@ logger = logging.getLogger(__name__)
 EQUIPMENT_TEST_SECONDS = 5  # seconds each device is held ON
 
 EQUIPMENT_TEST_NODES = [
-    ("Node 1", ["pump", "p1", "d1", "ro2", "ro1", "p2"]),
-    ("Node 2", ["flushmain", "p3", "d2", "ro4", "ro3", "p4"]),
-    ("Node 3", ["s8", "s1", "s5", "s4", "s3", "s2"]),
+    ("Node 1", ["p1", "d1", "ro2", "ro1", "p2"]),
+    ("Node 2", ["p3", "d2", "ro4", "ro3", "p4"]),
+    ("Node 3", ["s1", "s5", "s4", "s3", "s2"]),
 ]
-EQUIPMENT_TEST_GPIO = ["dry", "roof", "geyser", "top", "bottom", "rglight"]
+# Pi-direct GPIO. pump/flushmain/s8 moved off the ESP32 nodes onto Pi GPIO;
+# 'roof' retired (its GPIO 15 is now flushmain).
+EQUIPMENT_TEST_GPIO = ["dry", "geyser", "top", "bottom", "rglight",
+                       "flushmain", "pump", "s8"]
 
 
 def build_equipment_test_plan() -> List[Dict[str, Any]]:
@@ -721,11 +725,11 @@ class StageExecutor:
             "ro1", "ro2", "ro3", "ro4",
             "d1", "d2",
             "s1", "s2", "s3", "s4", "s5",
-            "flushmain", "s8",
-            "pump",
         ]
-        # top/bottom moved to Pi GPIO; p4 on Node 2 BACK1; p5 backup dropped.
-        gpio_names = ["dry", "roof", "geyser", "top", "bottom", "rglight"]
+        # top/bottom/pump/flushmain/s8 moved to Pi GPIO; p4 on Node 2 BACK1;
+        # p5 backup dropped; 'roof' retired (GPIO 15 now flushmain).
+        gpio_names = ["dry", "geyser", "top", "bottom", "rglight",
+                      "flushmain", "pump", "s8"]
         items = [(n, "mqtt") for n in all_mqtt] + [(n, "gpio") for n in gpio_names]
         total_items = len(items)
 

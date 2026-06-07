@@ -8,10 +8,11 @@ This is the central configuration file for the Spotless IoT system.
 The Raspberry Pi acts as the master controller, coordinating all ESP32 nodes.
 
 Device Mapping (see device_map.py for details):
-    NODE 1: pump, p1, d1, ro2, ro1, p2          (Relay 7 / BACK2 unused)
-    NODE 2: flushmain, p3, d2, ro4, ro3, p4     (Relay 7 / BACK2 unused)
-    NODE 3: s8, s1, s5, s4, s3, s2              (Relay 7 / BACK2 unused)
-    Pi GPIO: dry, roof, geyser, top, bottom, rglight
+    NODE 1: p1, d1, ro2, ro1, p2          (R1/220V -> pump moved to Pi GPIO; R7 unused)
+    NODE 2: p3, d2, ro4, ro3, p4          (R1/220V -> flushmain moved to Pi GPIO; R7 unused)
+    NODE 3: s1, s5, s4, s3, s2            (R1/220V -> s8 moved to Pi GPIO; R7 unused)
+    Pi GPIO: dry, flushmain, geyser, top, bottom, pump, rglight, s8
+             (roof retired - GPIO15 reused by flushmain)
 
 Relay Configuration (7 Relays per Node):
     Relay 1: S1 (220V)    - GPIO 9   - 220V Solenoid
@@ -66,17 +67,17 @@ NODES = {
     NODE_1: {
         "name": "ESP32 Node 1",
         "relay_count": 7,
-        "description": "Spotless Node 1 - pump, p1, d1, ro2, ro1, p2 (R7/BACK2 unused)"
+        "description": "Spotless Node 1 - p1, d1, ro2, ro1, p2 (R1 pump->Pi GPIO; R7 unused)"
     },
     NODE_2: {
         "name": "ESP32 Node 2",
         "relay_count": 7,
-        "description": "Spotless Node 2 - flushmain, p3, d2, ro4, ro3, p4 (R7/BACK2 unused)"
+        "description": "Spotless Node 2 - p3, d2, ro4, ro3, p4 (R1 flushmain->Pi GPIO; R7 unused)"
     },
     NODE_3: {
         "name": "ESP32 Node 3",
         "relay_count": 7,
-        "description": "Spotless Node 3 - s8, s1, s5, s4, s3, s2 (R7/BACK2 unused)"
+        "description": "Spotless Node 3 - s1, s5, s4, s3, s2 (R1 s8->Pi GPIO; R7 unused)"
     },
 }
 
@@ -150,7 +151,7 @@ RELAY_LABELS = {
 #   --   → BACK2    (Relay 7) - UNUSED
 #
 # NODE 2 Devices:
-#   flushmain → S1       (Relay 1) - Autoflush Gate 220V
+#   --        → S1       (Relay 1) - UNUSED (flushmain moved to Pi GPIO 15)
 #   p3        → P1&P2    (Relay 2) - Peristaltic Pump 3 (Med Shampoo) [moved from Node 1]
 #   d2        → FP1      (Relay 3) - Diaphragm Pump 2
 #   ro4       → RS1&DS2  (Relay 4) - RO Solenoid 4 (Drain Container 2)
@@ -159,7 +160,7 @@ RELAY_LABELS = {
 #   --        → BACK2    (Relay 7) - UNUSED
 #
 # NODE 3 Devices:
-#   s8   → S1       (Relay 1) - Main Gate 220V (bath lines)
+#   --   → S1       (Relay 1) - UNUSED (s8 moved to Pi GPIO 25)
 #   s1   → P1&P2    (Relay 2) - Solenoid 1 (Shampoo line gate)  [moved from BACK2]
 #   s5   → FP1      (Relay 3) - Solenoid 5 (Water line)
 #   s4   → RS1&DS2  (Relay 4) - Solenoid 4
@@ -168,9 +169,14 @@ RELAY_LABELS = {
 #   --   → BACK2    (Relay 7) - UNUSED
 #
 # Pi-direct GPIO (see GPIO_RELAYS below):
-#   dry (14), roof (15), geyser (18), top (20), bottom (21), rglight (24)
-#   top    - Flush Top Nozzle    (moved off ESP32 Node 2)
-#   bottom - Flush Bottom Nozzle (moved off ESP32 Node 3)
+#   dry (14), flushmain (15), geyser (18), top (20), bottom (21),
+#   pump (23), rglight (24), s8 (25)
+#   top       - Flush Top Nozzle    (moved off ESP32 Node 2)
+#   bottom    - Flush Bottom Nozzle (moved off ESP32 Node 3)
+#   flushmain - Autoflush Gate 220V (moved off ESP32; GPIO15 was 'roof')
+#   pump      - Booster Pump 220V   (moved off ESP32 Node 1)
+#   s8        - Main Gate 220V      (moved off ESP32; bath lines)
+#   roof      - RETIRED (GPIO15 reused by flushmain; roof light now inert)
 #   p4 (Disinfectant dosing pump) now on Node 2 BACK1 (Relay 6).
 #   p5 (Backup pump) DROPPED — replaced by p4.
 
@@ -188,9 +194,9 @@ GPIO_RELAYS = {
         "pin": 14,
         "description": "Dryer Relay",
     },
-    "roof": {
+    "flushmain": {
         "pin": 15,
-        "description": "Roof Light (tubelight)",
+        "description": "Autoflush Gate 220V (moved from ESP32; was 'roof')",
     },
     "geyser": {
         "pin": 18,
@@ -204,9 +210,17 @@ GPIO_RELAYS = {
         "pin": 21,
         "description": "Flush Bottom Nozzle (moved from ESP32 Node 3)",
     },
+    "pump": {
+        "pin": 23,
+        "description": "Booster Pump 220V (moved from ESP32 Node 1)",
+    },
     "rglight": {
         "pin": 24,
         "description": "Red/Green Indicator Light",
+    },
+    "s8": {
+        "pin": 25,
+        "description": "Main Gate 220V - Bath lines (moved from ESP32)",
     },
 }
 
