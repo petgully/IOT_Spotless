@@ -17,6 +17,7 @@
   .mod-info { min-width: 0; }
   .mod-name { font-weight: 600; font-size: 1.02rem; }
   .mod-hint { color: var(--text-muted); font-size: 0.82rem; margin-top: 2px; }
+  .mod-status { color: var(--ok); font-size: 0.82rem; margin-top: 4px; font-weight: 600; min-height: 0; }
 
   /* Toggle switch */
   .switch { position: relative; display: inline-block; width: 56px; height: 30px; flex: 0 0 auto; }
@@ -64,8 +65,12 @@
       {% for m in plan %}
       <div class="mod" id="mod-{{ m.key }}">
         <div class="mod-info">
-          <div class="mod-name">{{ m.label }}</div>
+          <div class="mod-name">
+            {{ m.label }}
+            {% if m.type == 'sequence' %}<span class="pill" style="margin-left:6px;">timed</span>{% endif %}
+          </div>
           <div class="mod-hint">{{ m.hint }}</div>
+          <div class="mod-status" id="status-{{ m.key }}"></div>
         </div>
         <label class="switch">
           <input type="checkbox" class="mod-toggle" data-key="{{ m.key }}">
@@ -127,11 +132,15 @@
 
   function renderState(state) {
     const modules = (state && state.modules) || {};
+    const status  = (state && state.status) || {};
     toggles.forEach(t => {
-      const on = !!modules[t.dataset.key];
+      const key = t.dataset.key;
+      const on = !!modules[key];
       t.checked = on;
-      const card = document.getElementById('mod-' + t.dataset.key);
+      const card = document.getElementById('mod-' + key);
       if (card) card.classList.toggle('on', on);
+      const st = document.getElementById('status-' + key);
+      if (st) st.textContent = status[key] || '';
     });
 
     const list = (state && state.energized) || [];
