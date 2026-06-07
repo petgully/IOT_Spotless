@@ -112,11 +112,9 @@ GPIO_PINS = {
 GPIO_ACTIVE_STATE = True  # default for relays NOT listed in GPIO_ACTIVE_LOW
 
 # Per-relay overrides: these channels are wired ACTIVE-LOW (relay ON when the
-# pin is LOW). They were observed energised at boot and inverted vs the rest,
-# so we drive them the opposite way to the default. dry + geyser were the
-# original two; s8, flushmain and pump (newly moved onto Pi GPIO) are wired the
-# same active-LOW way on this relay board.
-GPIO_ACTIVE_LOW = {"dry", "geyser", "s8", "flushmain", "pump"}
+# pin is LOW). Only 'geyser' remains active-LOW; dry, s8, flushmain and pump
+# are driven ACTIVE-HIGH (the default) like the rest of the board.
+GPIO_ACTIVE_LOW = {"geyser"}
 
 
 def _relay_active_high(name: str) -> bool:
