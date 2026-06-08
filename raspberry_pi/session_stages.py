@@ -134,6 +134,20 @@ SHAMPOO_LINE_DEVICES   = ["gpio:s8", "s1", "s2", "s4", "d1", "gpio:pump"]
 DISINFECT_LINE_DEVICES = ["gpio:s8", "s3", "s4", "s2", "d2", "gpio:pump"]
 WATER_LINE_DEVICES     = ["gpio:s8", "s5", "s2", "s4", "gpio:pump"]
 
+# --- Plan B shampoo line (TEMPORARY maintenance workaround) ---
+# Used only while the s1 shampoo-line gate is bypassed (it has high reverse
+# flow and is awaiting repair). Versus the normal SHAMPOO_LINE_DEVICES:
+#   - s1 is dropped (kept closed for the whole spray),
+#   - s5 (water line) is opened in its place,
+#   - s2 is NOT held steady; it is pulsed via `pulse_devices` below.
+# Everything else (s8, pump, d1, s4, and the dosing pump) is unchanged.
+# Toggle with config.json -> maintenance.shampoo_plan_b. Applies to the
+# regular (p1) shampoo AND the conditioner (p2), which share this fluid line.
+# The medicated (p3) shampoo keeps the normal line.
+SHAMPOO_PLAN_B_LINE_DEVICES = ["gpio:s8", "s5", "s4", "d1", "gpio:pump"]
+# s2: OPEN 10s -> CLOSED 10s, repeating, starting OPEN, for the whole stage.
+SHAMPOO_PLAN_B_PULSE = [{"device": "s2", "on": 10, "off": 10, "start": "on"}]
+
 
 # =============================================================================
 # Shared stage fragments (reusable building blocks)
@@ -159,8 +173,16 @@ def _relay_stage(name: str, label: str, duration: int, image: str,
                  devices_on: List[str], audio: Optional[str] = None,
                  parallel_pump: Optional[Dict] = None,
                  beep_end: bool = False,
-                 show_timer: bool = True) -> Dict:
-    """Build a relay-tracked stage. Accounting is relays (contract 6.4)."""
+                 show_timer: bool = True,
+                 pulse_devices: Optional[List[Dict]] = None) -> Dict:
+    """Build a relay-tracked stage. Accounting is relays (contract 6.4).
+
+    pulse_devices (optional): list of duty-cycle specs run in parallel for the
+    whole stage, e.g. [{"device": "s2", "on": 10, "off": 10, "start": "on"}].
+    These devices are NOT part of devices_on (so they don't affect relay
+    accounting); the executor toggles them on the given rhythm and forces them
+    OFF when the stage ends. See StageExecutor._pulse_async.
+    """
     s: Dict = {
         "name": name,
         "label": label,
@@ -176,6 +198,8 @@ def _relay_stage(name: str, label: str, duration: int, image: str,
         s["parallel_pump"] = parallel_pump
     if beep_end:
         s["beep_end"] = True
+    if pulse_devices:
+        s["pulse_devices"] = pulse_devices
     return s
 
 
@@ -238,13 +262,18 @@ def _flush_stages(dur: int) -> List[Dict]:
 
 def _full_session_stages(profile_values: Dict[str, int],
                          shampoo_pump: str = "p1",
-                         dryer_extra_seconds: int = 0) -> List[Dict]:
+                         dryer_extra_seconds: int = 0,
+                         shampoo_plan_b: bool = False) -> List[Dict]:
     """Build the full stage list for a pet bath session.
 
     Args:
         profile_values:      SET A or SET B dict from DEFAULT_PROFILES.
         shampoo_pump:        "p1" (regular) or "p3" (medicated / tick).
         dryer_extra_seconds: 0, or +300 if `extra_dry` add-on is present.
+        shampoo_plan_b:      TEMPORARY maintenance flag. When True, the regular
+                             (p1) shampoo AND the conditioner (p2) use the Plan
+                             B line (s1 bypassed, s5 opened, s2 pulsed).
+                             Medicated (p3) shampoo is never affected.
     """
     p = profile_values
     dryer_total = p["dryval"] + dryer_extra_seconds
@@ -264,13 +293,26 @@ def _full_session_stages(profile_values: Dict[str, int],
     ))
 
     # --- Shampoo ---
-    shampoo_label = "Shampoo Stage" if shampoo_pump == "p1" else "Medicated / Tick Shampoo"
-    stages.append(_relay_stage(
-        "shampoo", shampoo_label, p["sval"], "shampoo.png",
-        SHAMPOO_LINE_DEVICES,
-        parallel_pump={"device": shampoo_pump, "duration": p["wt"]},
-        audio="shampoo", beep_end=True,
-    ))
+    # Plan B only applies to the regular (p1) shampoo; medicated (p3) keeps the
+    # normal line. See SHAMPOO_PLAN_B_* above.
+    if shampoo_plan_b and shampoo_pump == "p1":
+        logger.info("session_stages: building Plan B shampoo stage "
+                    "(s1 bypassed, s5 open, s2 pulsed)")
+        stages.append(_relay_stage(
+            "shampoo", "Shampoo Stage", p["sval"], "shampoo.png",
+            SHAMPOO_PLAN_B_LINE_DEVICES,
+            parallel_pump={"device": "p1", "duration": p["wt"]},
+            pulse_devices=SHAMPOO_PLAN_B_PULSE,
+            audio="shampoo", beep_end=True,
+        ))
+    else:
+        shampoo_label = "Shampoo Stage" if shampoo_pump == "p1" else "Medicated / Tick Shampoo"
+        stages.append(_relay_stage(
+            "shampoo", shampoo_label, p["sval"], "shampoo.png",
+            SHAMPOO_LINE_DEVICES,
+            parallel_pump={"device": shampoo_pump, "duration": p["wt"]},
+            audio="shampoo", beep_end=True,
+        ))
 
     # --- Massage 1 ---
     stages.append(_prompt_stage(
@@ -290,12 +332,25 @@ def _full_session_stages(profile_values: Dict[str, int],
     ))
 
     # --- Conditioner (always p2) ---
-    stages.append(_relay_stage(
-        "conditioner", "Conditioner Stage", p["cval"], "conditioner.png",
-        SHAMPOO_LINE_DEVICES,
-        parallel_pump={"device": "p2", "duration": p["wt"]},
-        audio="conditioner", beep_end=True,
-    ))
+    # Conditioner shares the shampoo fluid line, so Plan B applies here too:
+    # s1 bypassed, s5 opened, s2 pulsed. The p2 dosing pump is unchanged.
+    if shampoo_plan_b:
+        logger.info("session_stages: building Plan B conditioner stage "
+                    "(s1 bypassed, s5 open, s2 pulsed)")
+        stages.append(_relay_stage(
+            "conditioner", "Conditioner Stage", p["cval"], "conditioner.png",
+            SHAMPOO_PLAN_B_LINE_DEVICES,
+            parallel_pump={"device": "p2", "duration": p["wt"]},
+            pulse_devices=SHAMPOO_PLAN_B_PULSE,
+            audio="conditioner", beep_end=True,
+        ))
+    else:
+        stages.append(_relay_stage(
+            "conditioner", "Conditioner Stage", p["cval"], "conditioner.png",
+            SHAMPOO_LINE_DEVICES,
+            parallel_pump={"device": "p2", "duration": p["wt"]},
+            audio="conditioner", beep_end=True,
+        ))
 
     # --- Massage 2 ---
     stages.append(_prompt_stage(
@@ -432,6 +487,7 @@ def build_session(size: Optional[str],
                   package: Optional[str],
                   addons,
                   profile_overrides: Optional[Dict[str, Dict[str, int]]] = None,
+                  shampoo_plan_b: bool = False,
                   ) -> Dict:
     """Resolve (size, package, addons) -> MachineRequest dict.
 
@@ -445,6 +501,9 @@ def build_session(size: Optional[str],
         profile_overrides: optional dict { 'A': {...}, 'B': {...} } merged on
                  top of DEFAULT_PROFILES per-key. Use to load values from
                  config.json without mutating defaults.
+        shampoo_plan_b: TEMPORARY maintenance flag (config.json ->
+                 maintenance.shampoo_plan_b). Routes the regular shampoo stage
+                 through the Plan B line while the s1 gate is repaired.
 
     Returns:
         dict with keys:
@@ -544,6 +603,7 @@ def build_session(size: Optional[str],
         profile_values=profile_values,
         shampoo_pump=shampoo_pump,
         dryer_extra_seconds=dryer_extra,
+        shampoo_plan_b=shampoo_plan_b,
     )
 
     return {

@@ -496,116 +496,138 @@ class StageExecutor:
         # ----- 3. Turn ON devices -----
         self._set_devices(devices_on, True)
 
-        # ----- 4. Stage start emit -----
-        emit("stage_start", {
-            "stage_index": idx, "stage_name": name, "stage_label": label,
-            "stage_duration": budget, "stage_image": image,
-            "total_stages": total,
-            "resumed_from": already if already > 0 else 0,
-        })
+        # ----- 3b. Start pulsed devices (duty-cycle; e.g. Plan B shampoo s2) -----
+        # These run in parallel for the whole stage and are NOT part of
+        # devices_on, so they don't affect relay accounting. The finally block
+        # below guarantees they stop + go OFF on every exit path (normal end,
+        # mid-stage abort, hard relay fault, or exception).
+        pulse_specs = stage.get("pulse_devices") or []
+        pulse_stop = threading.Event()
+        pulse_threads = (
+            self._pulse_async(pulse_specs, pulse_stop) if pulse_specs else []
+        )
+
         try:
-            on_stage_start(stage, idx)
-        except Exception as e:
-            logger.error(f"on_stage_start callback error: {e}")
-
-        # ----- 5. Tick loop with anti-fraud accounting -----
-        fault_seconds = 0
-        last_flush_at = time.time()
-        emitted_soft_warning = False
-
-        while delivered[name] < budget and self._running:
-            tick_start = time.time()
-
-            # Decide whether this second "counts" toward delivered.
-            if accounting == "wallclock" or not devices_on:
-                counted = True
-            else:
-                try:
-                    counted = bool(confirm_on_fn(devices_on))
-                except Exception as e:
-                    logger.error(f"confirm_on_fn error: {e}; assuming OFF")
-                    counted = False
-
-            if counted:
-                delivered[name] = min(budget, delivered[name] + 1)
-                fault_seconds = 0
-                emitted_soft_warning = False
-            else:
-                fault_seconds += 1
-                if (not emitted_soft_warning
-                        and fault_seconds >= RELAY_CONFIRM_SOFT_TIMEOUT_S):
-                    logger.warning(
-                        f"  [{name}] relays not confirmed ON after "
-                        f"{fault_seconds}s — soft warning"
-                    )
-                    emit("stage_relay_warning", {
-                        "stage_index": idx, "stage_name": name,
-                        "fault_seconds": fault_seconds,
-                    })
-                    emitted_soft_warning = True
-                if fault_seconds >= RELAY_CONFIRM_HARD_TIMEOUT_S:
-                    self._abort_reason = f"relay-fault:{name}:{fault_seconds}s"
-                    logger.error(
-                        f"  [{name}] HARD ABORT - relays not confirmed for "
-                        f"{fault_seconds}s; aborting session"
-                    )
-                    self._set_devices(devices_on, False)
-                    self._running = False  # CRITICAL: propagate abort to outer loop
-                    return False
-
-            # Per-second UI tick
-            remaining = max(0, budget - delivered[name])
-            progress  = int(delivered[name] / max(budget, 1) * 100)
-            emit("stage_progress", {
-                "stage_index": idx, "stage_name": name,
-                "progress": progress,
-                "elapsed":  delivered[name],
-                "remaining": remaining,
-                "total_duration": budget,
-                "counted": counted,
+            # ----- 4. Stage start emit -----
+            emit("stage_start", {
+                "stage_index": idx, "stage_name": name, "stage_label": label,
+                "stage_duration": budget, "stage_image": image,
+                "total_stages": total,
+                "resumed_from": already if already > 0 else 0,
             })
             try:
-                on_progress_tick(stage, delivered[name], budget)
+                on_stage_start(stage, idx)
             except Exception as e:
-                logger.error(f"on_progress_tick callback error: {e}")
+                logger.error(f"on_stage_start callback error: {e}")
 
-            # Periodic flush (default every 5s)
-            now = time.time()
-            if (now - last_flush_at) >= PROGRESS_FLUSH_INTERVAL_S:
-                last_flush_at = now
+            # ----- 5. Tick loop with anti-fraud accounting -----
+            fault_seconds = 0
+            last_flush_at = time.time()
+            emitted_soft_warning = False
+
+            while delivered[name] < budget and self._running:
+                tick_start = time.time()
+
+                # Decide whether this second "counts" toward delivered.
+                if accounting == "wallclock" or not devices_on:
+                    counted = True
+                else:
+                    try:
+                        counted = bool(confirm_on_fn(devices_on))
+                    except Exception as e:
+                        logger.error(f"confirm_on_fn error: {e}; assuming OFF")
+                        counted = False
+
+                if counted:
+                    delivered[name] = min(budget, delivered[name] + 1)
+                    fault_seconds = 0
+                    emitted_soft_warning = False
+                else:
+                    fault_seconds += 1
+                    if (not emitted_soft_warning
+                            and fault_seconds >= RELAY_CONFIRM_SOFT_TIMEOUT_S):
+                        logger.warning(
+                            f"  [{name}] relays not confirmed ON after "
+                            f"{fault_seconds}s — soft warning"
+                        )
+                        emit("stage_relay_warning", {
+                            "stage_index": idx, "stage_name": name,
+                            "fault_seconds": fault_seconds,
+                        })
+                        emitted_soft_warning = True
+                    if fault_seconds >= RELAY_CONFIRM_HARD_TIMEOUT_S:
+                        self._abort_reason = f"relay-fault:{name}:{fault_seconds}s"
+                        logger.error(
+                            f"  [{name}] HARD ABORT - relays not confirmed for "
+                            f"{fault_seconds}s; aborting session"
+                        )
+                        self._set_devices(devices_on, False)
+                        self._running = False  # CRITICAL: propagate abort to outer loop
+                        return False
+
+                # Per-second UI tick
+                remaining = max(0, budget - delivered[name])
+                progress  = int(delivered[name] / max(budget, 1) * 100)
+                emit("stage_progress", {
+                    "stage_index": idx, "stage_name": name,
+                    "progress": progress,
+                    "elapsed":  delivered[name],
+                    "remaining": remaining,
+                    "total_duration": budget,
+                    "counted": counted,
+                })
                 try:
-                    on_progress_flush(stage, delivered[name])
+                    on_progress_tick(stage, delivered[name], budget)
                 except Exception as e:
-                    logger.error(f"on_progress_flush callback error: {e}")
+                    logger.error(f"on_progress_tick callback error: {e}")
 
-            # Sleep the remainder of the second (be mindful of long callbacks)
-            elapsed = time.time() - tick_start
-            sleep_for = max(0.0, 1.0 - elapsed)
-            if sleep_for > 0:
-                # Sleep in chunks so a stop() request is responsive.
-                end_at = time.time() + sleep_for
-                while time.time() < end_at and self._running:
-                    time.sleep(min(0.1, end_at - time.time()))
+                # Periodic flush (default every 5s)
+                now = time.time()
+                if (now - last_flush_at) >= PROGRESS_FLUSH_INTERVAL_S:
+                    last_flush_at = now
+                    try:
+                        on_progress_flush(stage, delivered[name])
+                    except Exception as e:
+                        logger.error(f"on_progress_flush callback error: {e}")
 
-        # ----- 6. Stop loop reason: aborted? -----
-        if not self._running:
+                # Sleep the remainder of the second (be mindful of long callbacks)
+                elapsed = time.time() - tick_start
+                sleep_for = max(0.0, 1.0 - elapsed)
+                if sleep_for > 0:
+                    # Sleep in chunks so a stop() request is responsive.
+                    end_at = time.time() + sleep_for
+                    while time.time() < end_at and self._running:
+                        time.sleep(min(0.1, end_at - time.time()))
+
+            # ----- 6. Stop loop reason: aborted? -----
+            if not self._running:
+                self._set_devices(devices_on, False)
+                return False
+
+            # ----- 7. Final flush at stage end -----
+            try:
+                on_progress_flush(stage, delivered[name])
+            except Exception as e:
+                logger.error(f"on_progress_flush (final) error: {e}")
+
+            # ----- 8. Turn OFF devices -----
             self._set_devices(devices_on, False)
-            return False
 
-        # ----- 7. Final flush at stage end -----
-        try:
-            on_progress_flush(stage, delivered[name])
-        except Exception as e:
-            logger.error(f"on_progress_flush (final) error: {e}")
+            # ----- 9. Beep -----
+            if beep_end and AUDIO_ENABLED_BOOL:
+                self._beep()
 
-        # ----- 8. Turn OFF devices -----
-        self._set_devices(devices_on, False)
-
-        # ----- 9. Beep -----
-        if beep_end and AUDIO_ENABLED_BOOL:
-            self._beep()
-
-        return True
+            return True
+        finally:
+            # Stop any pulsed devices and force them OFF, no matter how we exit.
+            if pulse_threads:
+                pulse_stop.set()
+                for t in pulse_threads:
+                    t.join(timeout=2.0)
+                self._set_devices(
+                    [s["device"] for s in pulse_specs if s.get("device")],
+                    False,
+                )
 
     def _fire_stage_complete(self, stage, idx, delivered, major_stages,
                               on_stage_complete, emit):
@@ -678,6 +700,56 @@ class StageExecutor:
             else:
                 logger.warning(f"Unknown pump device: {device_name}")
         threading.Thread(target=_run, daemon=True).start()
+
+    def _pulse_async(self, pulse_specs: List[Dict],
+                     stop_event: threading.Event) -> List[threading.Thread]:
+        """Start one duty-cycle worker per pulse spec.
+
+        Each spec: {"device": "s2", "on": 10, "off": 10, "start": "on"}.
+        Returns the started threads so the caller can join them on stage exit.
+        The workers run until `stop_event` is set or the session stops, then
+        force their device OFF (also enforced by the caller's finally block).
+        """
+        threads: List[threading.Thread] = []
+        for spec in pulse_specs:
+            device = spec.get("device")
+            if not device:
+                continue
+            on_secs = float(spec.get("on", 0) or 0)
+            off_secs = float(spec.get("off", 0) or 0)
+            start_on = str(spec.get("start", "on")).lower() != "off"
+            t = threading.Thread(
+                target=self._pulse_worker,
+                args=(device, on_secs, off_secs, start_on, stop_event),
+                daemon=True,
+            )
+            t.start()
+            threads.append(t)
+        return threads
+
+    def _pulse_worker(self, device: str, on_secs: float, off_secs: float,
+                      start_on: bool, stop_event: threading.Event) -> None:
+        """Toggle a single device ON/OFF on a fixed rhythm until stopped."""
+        state = start_on
+        logger.info(
+            f"  Pulse {device}: start={'ON' if start_on else 'OFF'} "
+            f"on={on_secs}s off={off_secs}s"
+        )
+        try:
+            while not stop_event.is_set() and self._running:
+                self._set_devices([device], state)
+                phase = on_secs if state else off_secs
+                if phase <= 0:
+                    # Misconfigured (0s phase): avoid a busy loop.
+                    phase = 0.1
+                end_at = time.time() + phase
+                while (time.time() < end_at and not stop_event.is_set()
+                       and self._running):
+                    time.sleep(min(0.1, max(0.0, end_at - time.time())))
+                state = not state
+        finally:
+            self._set_devices([device], False)
+            logger.info(f"  Pulse {device}: stopped (OFF)")
 
     def _play_audio_async(self, audio_key: str) -> None:
         path = AUDIO_FILES.get(audio_key)
