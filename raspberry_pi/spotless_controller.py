@@ -48,6 +48,8 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -126,9 +128,33 @@ def build_equipment_test_plan() -> List[Dict[str, Any]]:
 # =============================================================================
 # Audio
 # =============================================================================
-AUDIO_BASE_PATH = os.environ.get(
-    "SPOTLESS_AUDIO_BASE", "/home/spotless/Downloads/V3_Spotless"
-)
+def _resolve_audio_base_path() -> str:
+    """Resolve the folder that holds the Voiceover/ and Mus/ audio files.
+
+    Priority:
+      1. SPOTLESS_AUDIO_BASE env override (explicit wins).
+      2. The bundled in-repo ``audio/`` folder (next to this module) — but
+         only once it actually contains voiceover mp3s, so an empty
+         placeholder folder never shadows a working external setup.
+      3. Legacy external location, kept so audio keeps playing until the
+         mp3s are bundled into the repo.
+    """
+    env = os.environ.get("SPOTLESS_AUDIO_BASE")
+    if env:
+        return env
+    bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
+    voice_dir = os.path.join(bundled, "Voiceover")
+    try:
+        if os.path.isdir(voice_dir) and any(
+            f.lower().endswith(".mp3") for f in os.listdir(voice_dir)
+        ):
+            return bundled
+    except OSError:
+        pass
+    return "/home/spotless/Downloads/V3_Spotless"
+
+
+AUDIO_BASE_PATH = _resolve_audio_base_path()
 
 AUDIO_FILES: Dict[str, str] = {
     "welcome":     f"{AUDIO_BASE_PATH}/Voiceover/1_Welcome.mp3",
@@ -224,6 +250,9 @@ class StageExecutor:
         self._running = False
         self._abort_reason: Optional[str] = None
         self._current_stage: Optional[Dict] = None
+        # Long-form background music player (legacy playmusic()); tracked so we
+        # can stop just the music without touching voiceover/beep players.
+        self._music_proc: Optional[subprocess.Popen] = None
 
     # =========================================================================
     # Public API
@@ -245,6 +274,12 @@ class StageExecutor:
             self.all_off()
         except Exception as e:
             logger.error(f"stop(): all_off failed: {e}")
+        # Stop background music immediately (run_session's finally also calls
+        # this, but admin-stop should silence the music without delay).
+        try:
+            self._stop_background_music()
+        except Exception as e:
+            logger.error(f"stop(): _stop_background_music failed: {e}")
         logger.warning(f"StageExecutor.stop() reason={reason!r}")
 
     def all_off(self) -> None:
@@ -275,6 +310,7 @@ class StageExecutor:
         resume_state:         Optional[ResumeState] = None,
         major_stages:         Optional[Set[str]] = None,
         confirm_on_fn:        Optional[Callable[[List[str]], bool]] = None,
+        background_music:     bool = True,
     ) -> SessionResult:
         """Execute the full session sequentially.
 
@@ -295,6 +331,10 @@ class StageExecutor:
             confirm_on_fn:        (devices_on_list) -> bool. Returns True when
                                   all listed relays are confirmed ON. If None,
                                   optimistic mode is used (assume on after set).
+            background_music:     if True (default), play the long-form
+                                  background music track (legacy playmusic())
+                                  for the whole session. No-op if audio is
+                                  disabled or the file is missing.
         """
         emit                = emit or _noop
         on_stage_start      = on_stage_start or (lambda *_: None)
@@ -323,7 +363,15 @@ class StageExecutor:
             f"SESSION START stages={total} resume={bool(resume_state)} "
             f"already_completed={len(completed)}"
         )
+        logger.info(
+            f"AUDIO enabled={AUDIO_ENABLED_BOOL} base={AUDIO_BASE_PATH!r} "
+            f"background_music={background_music}"
+        )
         logger.info("=" * 60)
+
+        # --- Background music for the whole session (legacy playmusic()) ---
+        if background_music:
+            self._start_background_music()
 
         try:
             for idx, stage in enumerate(stages):
@@ -430,6 +478,8 @@ class StageExecutor:
         finally:
             self._running = False
             self._current_stage = None
+            # Always stop the background music, however the session ended.
+            self._stop_background_music()
 
     # =========================================================================
     # Single-stage execution
@@ -754,14 +804,81 @@ class StageExecutor:
     def _play_audio_async(self, audio_key: str) -> None:
         path = AUDIO_FILES.get(audio_key)
         if not path:
+            logger.warning(f"audio: unknown key {audio_key!r}")
             return
         if not os.path.exists(path):
-            logger.debug(f"audio: file missing {path}")
+            logger.warning(f"audio: file missing for {audio_key!r}: {path}")
             return
+        logger.info(f"audio: voiceover {audio_key!r} -> {path}")
         threading.Thread(
             target=lambda: os.system(f"cvlc {path} vlc://quit"),
             daemon=True,
         ).start()
+
+    # =========================================================================
+    # Background music (legacy playmusic(): long-form track for the session)
+    # =========================================================================
+
+    def _start_background_music(self) -> None:
+        """Start the long-form background music track (legacy playmusic()).
+
+        Runs as a tracked child process in its OWN session/process group so
+        we can later stop just the music (and its vlc child) without killing
+        the short-lived voiceover/beep players (which run via os.system in the
+        main process group). No-op if audio is disabled, the file is missing,
+        cvlc isn't installed, or music is already playing.
+        """
+        if not AUDIO_ENABLED_BOOL:
+            logger.info("background music: audio disabled, skipping")
+            return
+        if self._music_proc is not None and self._music_proc.poll() is None:
+            logger.info("background music: already playing, skipping")
+            return
+        path = AUDIO_FILES.get("music_8h")
+        if not path or not os.path.exists(path):
+            logger.warning(f"background music: file missing, skipping ({path})")
+            return
+        try:
+            # --loop keeps it going if the track is shorter than the session;
+            # vlc://quit is intentionally omitted so it plays until we stop it.
+            self._music_proc = subprocess.Popen(
+                ["cvlc", "--no-video", "--loop", path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,  # own process group for clean shutdown
+            )
+            logger.info(
+                f"background music: started ({path}) pid={self._music_proc.pid}"
+            )
+        except FileNotFoundError:
+            logger.warning("background music: 'cvlc' not found — is VLC installed?")
+            self._music_proc = None
+        except Exception as e:
+            logger.error(f"background music: failed to start: {e}")
+            self._music_proc = None
+
+    def _stop_background_music(self) -> None:
+        """Stop the background music process (and its vlc child) if running."""
+        proc = self._music_proc
+        self._music_proc = None
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except Exception:
+                    proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except Exception:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except Exception:
+                        proc.kill()
+            logger.info("background music: stopped")
+        except Exception as e:
+            logger.error(f"background music: stop failed: {e}")
 
     def _beep(self, count: int = 6, interval: float = 0.5) -> None:
         beep_path = AUDIO_FILES.get("beep")
