@@ -201,12 +201,31 @@ def validate_test_prefix(qr_code: str) -> Optional[str]:
 # Main entrypoint - 7-gate booking validation
 # =============================================================================
 
+def _db_ready(db) -> bool:
+    """True if the DB is usable, reconnecting a stale link if possible.
+
+    Prefers ensure_connected()/_ensure_connection() (which ping with
+    reconnect) so an idle-dropped MySQL connection heals itself; falls back to
+    the plain is_connected flag for simple/mocked db objects.
+    """
+    if db is None:
+        return False
+    for attr in ("ensure_connected", "_ensure_connection"):
+        fn = getattr(db, attr, None)
+        if callable(fn):
+            try:
+                return bool(fn())
+            except Exception as e:
+                logger.warning(f"db readiness check via {attr}() failed: {e}")
+                return False
+    return bool(getattr(db, "is_connected", False))
+
+
 def validate_booking_qr(
     qr_code: str,
     machine_id: str,
     db,
     profile_overrides: Optional[Dict[str, Dict[str, int]]] = None,
-    shampoo_plan_b: bool = False,
 ) -> ValidationResult:
     """Run the 7-gate validation flow on a PG-prefixed booking code.
 
@@ -216,8 +235,6 @@ def validate_booking_qr(
         db:                DatabaseManager (must be connected).
         profile_overrides: optional {'A': {...}, 'B': {...}} for build_session;
                            typically obtained from ConfigManager.
-        shampoo_plan_b:    TEMPORARY maintenance flag passed to build_session;
-                           routes regular shampoo through the Plan B line.
 
     Returns:
         ValidationResult — see docstring above.
@@ -226,7 +243,11 @@ def validate_booking_qr(
         return _refuse("empty_qr", "Empty QR code", gate=0)
     if not machine_id:
         return _refuse("no_machine_id", "Machine not configured", gate=0)
-    if not db or not getattr(db, "is_connected", False):
+    # IMPORTANT: gate on a *reconnecting* check, not bare is_connected. After a
+    # long idle the MySQL link goes stale; ensure_connected()/_ensure_connection
+    # transparently re-establishes it so the kiosk recovers on the next scan
+    # instead of staying "Database unreachable" until a Pi restart.
+    if not _db_ready(db):
         return _refuse(
             "db_offline",
             "Database unreachable — please ask staff for help.",
@@ -343,7 +364,6 @@ def validate_booking_qr(
         package=package,
         addons=addons_list,
         profile_overrides=profile_overrides,
-        shampoo_plan_b=shampoo_plan_b,
     )
     if machine_request.get("refused"):
         return _refuse(
@@ -384,7 +404,6 @@ def validate_booking_qr(
 
 def validate_qr(qr_code: str, machine_id: str, db,
                 profile_overrides: Optional[Dict[str, Dict[str, int]]] = None,
-                shampoo_plan_b: bool = False,
                 ) -> Dict[str, Any]:
     """Single entrypoint used by web_server / session_runner.
 
@@ -402,8 +421,7 @@ def validate_qr(qr_code: str, machine_id: str, db,
     qr = qr_code.strip()
 
     if _looks_like_booking_code(qr):
-        vr = validate_booking_qr(qr, machine_id, db, profile_overrides,
-                                 shampoo_plan_b=shampoo_plan_b)
+        vr = validate_booking_qr(qr, machine_id, db, profile_overrides)
         # Stash the live ValidationResult in '_obj' so session_runner can
         # access machine_request without re-resolving.
         return {"kind": "booking", "result": vr.as_dict(), "_obj": vr}

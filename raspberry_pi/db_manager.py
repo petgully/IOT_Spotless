@@ -83,6 +83,8 @@ class DatabaseManager:
 
     @property
     def is_connected(self) -> bool:
+        """Pure check - does NOT try to reconnect. Use ensure_connected() (or
+        _ensure_connection) when you want a stale link to self-heal."""
         if not self._connection:
             return False
         try:
@@ -90,6 +92,13 @@ class DatabaseManager:
             return True
         except Exception:
             return False
+
+    def ensure_connected(self) -> bool:
+        """Return True if the DB is usable, transparently reconnecting if the
+        link went stale (e.g. MySQL closed it after `wait_timeout` while the
+        kiosk sat idle). This is what callers should gate on so the system
+        recovers on its own instead of needing a Pi restart."""
+        return self._ensure_connection()
 
     def connect(self) -> bool:
         if not PYMYSQL_AVAILABLE:
@@ -135,9 +144,22 @@ class DatabaseManager:
             logger.info("Disconnected from database")
 
     def _ensure_connection(self) -> bool:
-        if not self.is_connected:
+        """Make sure the connection is live, reconnecting if it has gone stale.
+
+        Uses pymysql's ping(reconnect=True) which both detects a dropped link
+        and transparently re-establishes it (handles the classic 'MySQL server
+        has gone away' after an idle wait_timeout). Falls back to a full
+        connect() if there is no connection object or the ping itself fails.
+        """
+        if not self._connection:
             return self.connect()
-        return True
+        try:
+            self._connection.ping(reconnect=True)
+            self._connected = True
+            return True
+        except Exception as e:
+            logger.warning(f"DB ping failed ({e}); reconnecting...")
+            return self.connect()
 
     # =========================================================================
     # Session Configuration Queries

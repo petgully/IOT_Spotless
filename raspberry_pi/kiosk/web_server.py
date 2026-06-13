@@ -118,21 +118,6 @@ def _profile_overrides():
     return None
 
 
-def _shampoo_plan_b() -> bool:
-    """TEMPORARY maintenance flag: route the regular shampoo stage through
-    Plan B (s1 bypassed, s5 opened, s2 pulsed) while s1 is being repaired.
-
-    Reads from the config cache that _profile_overrides() just reloaded, so
-    call this AFTER _profile_overrides() to avoid a second disk read.
-    """
-    if _spotless_app and _spotless_app.config_mgr:
-        try:
-            return _spotless_app.config_mgr.get_shampoo_plan_b()
-        except Exception as e:
-            logger.warning(f"shampoo_plan_b fetch failed: {e}")
-    return False
-
-
 def _kiosk_stage_preview(stages):
     """Convert the raw stage list into a lightweight summary for the UI.
 
@@ -234,11 +219,9 @@ def start_session():
         return jsonify({"success": False, "error": "Machine ID not configured"}), 500
 
     overrides = _profile_overrides()
-    plan_b = _shampoo_plan_b()
 
     # ----- Dispatch through the unified validator -----
-    decision = validate_qr(qr_code, machine_id, _db, profile_overrides=overrides,
-                           shampoo_plan_b=plan_b)
+    decision = validate_qr(qr_code, machine_id, _db, profile_overrides=overrides)
     kind = decision.get("kind")
 
     if kind == "unknown":

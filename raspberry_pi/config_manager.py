@@ -87,15 +87,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
     },
 
-    # --- Maintenance / temporary hardware workarounds ---
-    "maintenance": {
-        # Plan B shampoo: bypass the s1 shampoo-line gate (high reverse flow
-        # while it's being repaired). When true, the regular (p1) shampoo
-        # stage routes through s5 and pulses s2 instead of holding s1+s2 open.
-        # Flip back to false once s1 is fixed. See session_stages.py.
-        "shampoo_plan_b": False,
-    },
-
     # --- Cloud sync settings (contract §8.7) ---
     "cloud_sync": {
         "enabled": True,
@@ -329,15 +320,6 @@ class ConfigManager:
         config = self.load_config()
         return config.get("resume", DEFAULT_CONFIG["resume"])
 
-    def get_maintenance_config(self) -> Dict:
-        config = self.load_config()
-        return config.get("maintenance", DEFAULT_CONFIG["maintenance"])
-
-    def get_shampoo_plan_b(self) -> bool:
-        """Temporary flag: route the regular shampoo stage through Plan B
-        (s1 bypassed, s5 opened, s2 pulsed) while s1 is being repaired."""
-        return bool(self.get_maintenance_config().get("shampoo_plan_b", False))
-
     # =========================================================================
     # Configuration Updates
     # =========================================================================
@@ -359,7 +341,7 @@ class ConfigManager:
     def update_machine_info(self, **kwargs):
         config = self.load_config()
         reserved = {"size_profiles", "geyser", "roof_light", "cloud_sync",
-                    "resume", "maintenance"}
+                    "resume"}
         for k, v in kwargs.items():
             if k not in reserved:
                 config[k] = v
