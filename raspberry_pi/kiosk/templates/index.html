@@ -12,9 +12,27 @@
         <!-- Header -->
         <header class="header">
             <div class="machine-id">{{ machine_id }}</div>
-            <div class="status-indicator" id="statusIndicator">
-                <span class="status-dot online"></span>
-                <span>Ready</span>
+
+            <!-- ESP32 Node Online Status -->
+            <div class="node-status-bar" id="nodeStatusBar" title="ESP32 node connection status">
+                <span class="node-status-bar-label">Nodes</span>
+                <div class="node-status-item" id="nodeStatus-spotless_node1">
+                    <span class="status-dot offline"></span>
+                    <span class="node-status-name">Node 1</span>
+                </div>
+                <div class="node-status-item" id="nodeStatus-spotless_node2">
+                    <span class="status-dot offline"></span>
+                    <span class="node-status-name">Node 2</span>
+                </div>
+                <div class="node-status-item" id="nodeStatus-spotless_node3">
+                    <span class="status-dot offline"></span>
+                    <span class="node-status-name">Node 3</span>
+                </div>
+            </div>
+
+            <div class="status-indicator" id="statusIndicator" title="Database connection status">
+                <span class="status-dot offline"></span>
+                <span>Checking&hellip;</span>
             </div>
         </header>
 

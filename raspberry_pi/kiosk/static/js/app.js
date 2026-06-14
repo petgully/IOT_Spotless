@@ -14,6 +14,8 @@ const CONFIG = {
     inputTimeout: 1500,  // ms to wait before auto-submit (for barcode scanners)
     minCodeLength: 1,   // Minimum valid code length (allow any length)
     maxCodeLength: 30,  // Maximum valid code length
+    nodeStatusInterval: 10000,  // ms between ESP32 node status polls
+    dbStatusInterval: 10000,    // ms between database status polls
 };
 
 // =============================================================================
@@ -46,10 +48,69 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeQuickAccess();
     updateClock();
     setInterval(updateClock, 1000);
+
+    // ESP32 node online status (poll the Pi, which tracks MQTT heartbeats)
+    refreshNodeStatus();
+    setInterval(refreshNodeStatus, CONFIG.nodeStatusInterval);
+
+    // Database connection status (drives the top-right "Ready" indicator)
+    refreshDbStatus();
+    setInterval(refreshDbStatus, CONFIG.dbStatusInterval);
     
     // Keep input focused for barcode scanner
     keepInputFocused();
 });
+
+// =============================================================================
+// Database Status (top-right indicator)
+// =============================================================================
+async function refreshDbStatus() {
+    try {
+        const response = await fetch('/api/db/status');
+        const data = await response.json();
+        if (data.connected) {
+            updateStatus('online', 'Ready');
+        } else {
+            updateStatus('offline', 'Disconnected');
+        }
+    } catch (error) {
+        console.error('Failed to fetch database status:', error);
+        updateStatus('offline', 'Disconnected');
+    }
+}
+
+// =============================================================================
+// ESP32 Node Status
+// =============================================================================
+async function refreshNodeStatus() {
+    try {
+        const response = await fetch('/api/nodes/status');
+        const data = await response.json();
+        (data.nodes || []).forEach(updateNodeIndicator);
+    } catch (error) {
+        console.error('Failed to fetch node status:', error);
+        // On error, mark all known indicators offline
+        document.querySelectorAll('.node-status-item').forEach((item) => {
+            setNodeIndicatorState(item, 'offline');
+        });
+    }
+}
+
+function updateNodeIndicator(node) {
+    const item = document.getElementById(`nodeStatus-${node.node_id}`);
+    if (!item) return;
+    setNodeIndicatorState(item, node.state || (node.online ? 'online' : 'offline'));
+}
+
+function setNodeIndicatorState(item, state) {
+    const dot = item.querySelector('.status-dot');
+    if (dot) {
+        dot.className = `status-dot ${state}`;
+    }
+    item.classList.toggle('is-online', state === 'online');
+    item.classList.toggle('is-offline', state === 'offline');
+    item.classList.toggle('is-unknown', state === 'unknown');
+}
 
 // =============================================================================
 // WebSocket Connection
@@ -57,14 +118,16 @@ document.addEventListener('DOMContentLoaded', () => {
 function initializeSocket() {
     socket = io();
     
+    // Note: the top-right header indicator now reflects DATABASE connectivity
+    // (see refreshDbStatus), not this WebSocket. The socket is still used for
+    // real-time scan/session push events below, but its connect/disconnect
+    // churn no longer drives the visible status badge.
     socket.on('connect', () => {
         console.log('Connected to server');
-        updateStatus('online', 'Ready');
     });
     
     socket.on('disconnect', () => {
         console.log('Disconnected from server');
-        updateStatus('offline', 'Offline');
     });
     
     socket.on('scan_success', (data) => {

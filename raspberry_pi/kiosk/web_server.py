@@ -29,6 +29,7 @@ from flask_socketio import SocketIO, emit
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config import NODES
 from qr_validator import validate_qr  # contract v1.1 dispatcher
 from session_runner import SessionRunner
 from session_stages import (
@@ -47,6 +48,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 _spotless_app = None
 _session_runner: SessionRunner = None
 _db = None
+
+# Fixed Node 1 / 2 / 3 ordering for the kiosk status indicators. Built once
+# from config.NODES so the header order is stable across requests.
+_NODE_CATALOG = list(NODES.items())
 
 
 # =============================================================================
@@ -175,6 +180,63 @@ def get_status():
             "queue_depth": cloud_queue_depth,
         },
         "recovery_pending": _recovery_pending_summary(),
+    })
+
+
+@app.route("/api/db/status")
+def get_db_status():
+    """Live database connectivity for the header indicator.
+
+    Uses DatabaseManager.ensure_connected(), which pings the DB and
+    transparently reconnects a stale link, so the indicator reflects whether
+    the database is actually reachable right now (not just whether we once
+    connected at boot). Returns connected=False if the DB is unreachable or
+    not configured.
+    """
+    connected = False
+    if _db is not None:
+        try:
+            connected = bool(_db.ensure_connected())
+        except Exception as e:
+            logger.warning(f"db status check failed: {e}")
+            connected = False
+    return jsonify({"connected": connected})
+
+
+@app.route("/api/nodes/status")
+def get_nodes_status():
+    """Online/offline status of each ESP32 node for the kiosk header.
+
+    Reads live state from the NodeController (which derives online/offline
+    from MQTT heartbeats on spotless/nodes/+/status). Returns a stable,
+    ordered list so the UI can render fixed Node 1 / 2 / 3 indicators even
+    when the controller is unavailable (e.g. dev / no-hardware mode).
+    """
+    nodes = []
+    controller = getattr(_spotless_app, "controller", None) if _spotless_app else None
+
+    states = {}
+    if controller is not None:
+        try:
+            states = {
+                node_id: state.value
+                for node_id, state in controller.get_all_node_states().items()
+            }
+        except Exception as e:
+            logger.warning(f"node status fetch failed: {e}")
+
+    for idx, (node_id, cfg) in enumerate(_NODE_CATALOG, start=1):
+        nodes.append({
+            "node_id": node_id,
+            "label": f"Node {idx}",
+            "name": cfg.get("name", node_id),
+            "state": states.get(node_id, "unknown"),
+            "online": states.get(node_id) == "online",
+        })
+
+    return jsonify({
+        "available": controller is not None,
+        "nodes": nodes,
     })
 
 

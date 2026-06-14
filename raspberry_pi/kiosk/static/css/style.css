@@ -105,6 +105,46 @@ html, body {
     50% { opacity: 0.7; transform: scale(1.1); }
 }
 
+.status-dot.unknown {
+    background: var(--warning-orange);
+    animation: none;
+}
+
+/* ESP32 Node Online Status Bar (header) */
+.node-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.4rem 1rem;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+}
+
+.node-status-bar-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.85;
+}
+
+.node-status-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.node-status-name {
+    white-space: nowrap;
+}
+
+.node-status-item.is-offline .node-status-name,
+.node-status-item.is-unknown .node-status-name {
+    opacity: 0.6;
+}
+
 /* =============================================================================
    Main Content
    ============================================================================= */
