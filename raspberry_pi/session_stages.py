@@ -70,32 +70,32 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROFILES: Dict[str, Dict[str, int]] = {
     "A": {
-        "sval":      80,    # shampoo spray
-        "cval":      80,    # conditioner spray
+        "sval":      65,    # shampoo spray
+        "cval":      65,    # conditioner spray (kept identical to shampoo)
         "wval":      60,    # water rinse (final rinse is 2 * wval)
         "dval":      60,    # disinfectant spray
         "dryval":   600,    # dryer total (split into two phases)
         "fval":      60,    # autoflush per phase
-        "wt":        30,    # peristaltic pump run (~30 mL)
+        "wt":        20,    # peristaltic pump dose (P1 / P2 run time)
         "msgval":    30,    # massage / soak wait
         "tdry":      30,    # towel dry wait
-        "prime_fill":   30,
-        "prime_empty":   6,
-        "prime_empty_2": 12,  # second prime is slightly longer
+        "prime_fill":   20,
+        "prime_empty":   5,
+        "prime_empty_2": 5,  # conditioner prime kept identical to shampoo
     },
     "B": {
-        "sval":     120,
-        "cval":     120,
+        "sval":     125,
+        "cval":     125,    # kept identical to shampoo
         "wval":      90,
         "dval":      60,
         "dryval":   800,
         "fval":      60,
-        "wt":        60,    # ~60 mL for XL pets
+        "wt":        25,    # peristaltic pump dose (P1 / P2 run time)
         "msgval":    30,
         "tdry":      30,
         "prime_fill":   30,
-        "prime_empty":   6,
-        "prime_empty_2": 12,
+        "prime_empty":   5,
+        "prime_empty_2": 5,  # conditioner prime kept identical to shampoo
     },
 }
 
@@ -104,10 +104,10 @@ DEFAULT_PROFILES: Dict[str, Dict[str, int]] = {
 # =============================================================================
 SIZE_TO_PROFILE: Dict[str, str] = {
     "small":        "A",
-    "medium":       "A",
-    "medium_large": "A",
-    "large":        "A",
-    "indie":        "A",
+    "medium":       "B",
+    "medium_large": "B",
+    "large":        "B",
+    "indie":        "B",
     "xl":           "B",
 }
 

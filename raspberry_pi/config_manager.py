@@ -72,18 +72,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # --- Size profiles (contract §6.1) ---
     "size_profiles": {
         "A": {
-            "description": "SET A — small / medium / medium_large / large / indie",
-            "sval":   80, "cval":   80, "wval":   60, "dval":   60,
-            "dryval": 600, "fval":   60, "wt":     30,
+            "description": "SET A — small",
+            "sval":   65, "cval":   65, "wval":   60, "dval":   60,
+            "dryval": 600, "fval":   60, "wt":     20,
             "msgval": 30,  "tdry":   30,
-            "prime_fill": 30, "prime_empty": 6, "prime_empty_2": 12,
+            "prime_fill": 20, "prime_empty": 5, "prime_empty_2": 5,
         },
         "B": {
-            "description": "SET B — xl",
-            "sval":  120, "cval":  120, "wval":   90, "dval":   60,
-            "dryval": 800, "fval":   60, "wt":     60,
+            "description": "SET B — medium / medium_large / large / indie / xl",
+            "sval":  125, "cval":  125, "wval":   90, "dval":   60,
+            "dryval": 800, "fval":   60, "wt":     25,
             "msgval": 30,  "tdry":   30,
-            "prime_fill": 30, "prime_empty": 6, "prime_empty_2": 12,
+            "prime_fill": 30, "prime_empty": 5, "prime_empty_2": 5,
         },
     },
 
