@@ -323,6 +323,18 @@ def module_test_page():
     )
 
 
+@operator_admin_bp.route("/component-test")
+@require_admin
+def component_test_page():
+    settings = _all_settings()
+    return render_template(
+        "component_test.html",
+        settings=settings,
+        using_default_password=is_using_default_password(),
+        plan=_component_test_plan(),
+    )
+
+
 # =============================================================================
 # Equipment self-test ("quick check") — runs every device ~5s, node by node,
 # then the Pi-direct GPIO relays. Reuses the existing StageExecutor demo walk
@@ -526,6 +538,91 @@ def api_module_test_all_off():
         logger.exception("admin: module-test all-off failed")
         return jsonify({"ok": False, "error": f"All-off failed: {e}"}), 500
     logger.info("admin: module-test ALL OFF by operator")
+    return jsonify({"ok": True, "state": state})
+
+
+# =============================================================================
+# Component test — latch ONE relay/device at a time so the operator can verify
+# a single pump / solenoid / GPIO relay actually fires. Drives the same
+# ManualController as the module test (shared reference-counted relays), so the
+# "currently energised" view and the self-test mutual-exclusion still hold.
+# =============================================================================
+
+def _component_test_plan():
+    try:
+        from manual_control import build_component_plan
+        return build_component_plan()
+    except Exception as e:
+        logger.warning(f"admin: component-test plan unavailable: {e}")
+        return []
+
+
+def _component_tokens() -> set:
+    try:
+        from manual_control import component_tokens
+        return component_tokens()
+    except Exception as e:
+        logger.warning(f"admin: component tokens unavailable: {e}")
+        return set()
+
+
+@operator_admin_bp.route("/api/component-test/state", methods=["GET"])
+@require_admin
+def api_component_test_state():
+    mc = _manual_controller()
+    runner = _runner()
+    return jsonify({
+        "available": mc is not None,
+        "session_active": bool(getattr(runner, "is_active", False)) if runner else False,
+        "state": mc.state() if mc else {"energized": [], "any_active": False},
+    })
+
+
+@operator_admin_bp.route("/api/component-test/toggle", methods=["POST"])
+@require_admin
+def api_component_test_toggle():
+    mc = _manual_controller()
+    if mc is None:
+        return jsonify({"ok": False,
+                        "error": "Controller not available on this host."}), 503
+
+    data = _json_payload()
+    token = str(data.get("component") or "").strip()
+    on = bool(data.get("on"))
+    if not token:
+        return jsonify({"ok": False, "error": "Missing 'component'."}), 400
+    if token not in _component_tokens():
+        return jsonify({"ok": False, "error": f"Unknown component {token!r}."}), 400
+
+    # Refuse to drive relays while a timed bath / self-test owns the hardware.
+    runner = _runner()
+    if on and runner is not None and getattr(runner, "is_active", False):
+        return jsonify({"ok": False,
+                        "error": "A session is running. Stop it before "
+                                 "testing components."}), 409
+
+    try:
+        state = mc.set_component(token, on)
+    except Exception as e:
+        logger.exception("admin: component-test toggle failed")
+        return jsonify({"ok": False, "error": f"Toggle failed: {e}"}), 500
+    logger.info(f"admin: component {token} -> {'ON' if on else 'OFF'}")
+    return jsonify({"ok": True, "state": state})
+
+
+@operator_admin_bp.route("/api/component-test/all-off", methods=["POST"])
+@require_admin
+def api_component_test_all_off():
+    mc = _manual_controller()
+    if mc is None:
+        return jsonify({"ok": False,
+                        "error": "Controller not available on this host."}), 503
+    try:
+        state = mc.all_off()
+    except Exception as e:
+        logger.exception("admin: component-test all-off failed")
+        return jsonify({"ok": False, "error": f"All-off failed: {e}"}), 500
+    logger.info("admin: component-test ALL OFF by operator")
     return jsonify({"ok": True, "state": state})
 
 

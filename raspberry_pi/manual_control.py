@@ -206,6 +206,76 @@ def token_label(token: str) -> str:
 
 
 # =============================================================================
+# Component plan — every individual relay/device on its own
+# =============================================================================
+# build_module_plan() groups many tokens into a functional line (a "module").
+# build_component_plan() does the opposite: it lists each device token by
+# itself, grouped only for on-screen layout, so the operator can latch ONE
+# relay at a time and confirm that single pump / solenoid / GPIO relay
+# physically fires. Same ManualController + reference counting drives it.
+
+def build_component_plan() -> List[Dict[str, Any]]:
+    """Return individual device tokens grouped by ESP32 node and Pi GPIO.
+
+    Best-effort: if device_map / config can't be imported the affected group
+    is simply skipped so the page still renders the rest.
+    """
+    groups: List[Dict[str, Any]] = []
+
+    # ESP32 node relays (MQTT devices), one group per node.
+    try:
+        from device_map import devices as _dm, NODE_1, NODE_2, NODE_3
+        node_labels = {
+            NODE_1: "ESP32 Node 1",
+            NODE_2: "ESP32 Node 2",
+            NODE_3: "ESP32 Node 3",
+        }
+        for nid in (NODE_1, NODE_2, NODE_3):
+            comps: List[Dict[str, Any]] = []
+            node_devs = _dm.get_node_devices(nid)
+            for name, info in sorted(node_devs.items(),
+                                     key=lambda kv: kv[1].relay_num):
+                comps.append({
+                    "token": name,
+                    "label": info.description,
+                    "meta": f"Relay {info.relay_num} · {info.relay_label}",
+                })
+            if comps:
+                groups.append({"group": node_labels.get(nid, nid),
+                               "components": comps})
+    except Exception as e:
+        logger.warning(f"component plan: device_map unavailable: {e}")
+
+    # Raspberry Pi-direct GPIO relays.
+    try:
+        from config import GPIO_RELAYS as _gpio_cfg
+        comps = []
+        for name, cfg in _gpio_cfg.items():
+            comps.append({
+                "token": f"gpio:{name}",
+                "label": cfg.get("description", name),
+                "meta": f"Pi GPIO {cfg.get('pin', '?')}",
+            })
+        if comps:
+            groups.append({"group": "Raspberry Pi GPIO", "components": comps})
+    except Exception as e:
+        logger.warning(f"component plan: GPIO config unavailable: {e}")
+
+    return groups
+
+
+def component_tokens() -> Set[str]:
+    """Flat set of every valid component token (for API validation)."""
+    toks: Set[str] = set()
+    for grp in build_component_plan():
+        for c in grp.get("components", []):
+            tok = c.get("token")
+            if tok:
+                toks.add(tok)
+    return toks
+
+
+# =============================================================================
 # Manual controller
 # =============================================================================
 
@@ -345,6 +415,26 @@ class ManualController:
             else:
                 self._active.pop(key, None)
                 logger.info(f"manual: module OFF -> {key}")
+            self._reconcile()
+            return self._state_locked()
+
+    def set_component(self, token: str, on: bool) -> Dict[str, Any]:
+        """Latch a SINGLE device token ON/OFF (the "component test").
+
+        Each component is tracked under its own ``comp:<token>`` active key so
+        it shares the same reference-counted relay bookkeeping as modules: if
+        a module already holds the same relay, turning the component off won't
+        physically drop it until nothing else wants it. ``token`` may be a bare
+        MQTT device (e.g. ``"p1"``) or a ``"gpio:<name>"`` Pi relay.
+        """
+        comp_key = f"comp:{token}"
+        with self._lock:
+            if on:
+                self._active[comp_key] = {token}
+                logger.info(f"manual: component ON  -> {token}")
+            else:
+                self._active.pop(comp_key, None)
+                logger.info(f"manual: component OFF -> {token}")
             self._reconcile()
             return self._state_locked()
 
